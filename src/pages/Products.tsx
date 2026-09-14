@@ -4,7 +4,16 @@ import type { Product, InventoryItem, WarehouseStock, StockMovement, KitTemplate
 import { TrackingBadge, StatusBadge, MovementBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
-import { Plus, X, Search, Pencil } from 'lucide-react'
+import { Plus, X, Search, Pencil, ChevronDown, Check } from 'lucide-react'
+
+const CATEGORIES = [
+  'Adapters', 'Cable', 'Ceiling Mount', 'Data storage', 'Demo', 'Display',
+  'Frames', 'Kit', 'LED module', 'Mounts', 'Office supplies', 'PC',
+  'Play box', 'Printer', 'Routers', 'Scent Diffuser', 'Scent Diffuser Tank',
+  'Services', 'SIM card', 'Smart camera', 'Software', 'Streaming Device',
+  'Switch', 'TV stand - Vesa', 'USB Cameras', 'USB Tracker',
+  'Video processor', 'Warranty',
+]
 
 interface ProductWithCounts extends Product {
   inventory_counts?: Record<string, number>
@@ -20,6 +29,83 @@ const EMPTY_FORM: Partial<Product> = {
   category: '',
   player: false,
   active: true,
+}
+
+function CategorySelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useState<HTMLDivElement | null>(null)
+
+  const filtered = query
+    ? CATEGORIES.filter(c => c.toLowerCase().includes(query.toLowerCase()))
+    : CATEGORIES
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref[0] && !ref[0].contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open, ref])
+
+  return (
+    <div className="relative" ref={el => { ref[0] = el }}>
+      <button
+        type="button"
+        onClick={() => { setOpen(!open); setQuery('') }}
+        className="w-full h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-brand-500"
+      >
+        <span className={value ? 'text-neutral-900' : 'text-neutral-400'}>
+          {value || 'Select category...'}
+        </span>
+        <ChevronDown size={14} className="text-neutral-400 shrink-0" />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-neutral-0 border border-neutral-200 rounded-lg shadow-md overflow-hidden">
+          <div className="p-1.5 border-b border-neutral-200">
+            <input
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search categories..."
+              autoFocus
+              className="w-full h-8 px-2.5 bg-neutral-50 border border-neutral-200 rounded-md text-[12px] placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto py-1">
+            {value && (
+              <button
+                type="button"
+                onClick={() => { onChange(''); setOpen(false) }}
+                className="w-full px-3 py-1.5 text-left text-[12px] text-neutral-400 italic hover:bg-neutral-50"
+              >
+                Clear selection
+              </button>
+            )}
+            {filtered.length === 0 ? (
+              <div className="px-3 py-2 text-[12px] text-neutral-400">No matches</div>
+            ) : (
+              filtered.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => { onChange(c); setOpen(false) }}
+                  className={`w-full px-3 py-1.5 text-left text-[12px] flex items-center justify-between hover:bg-neutral-50 ${
+                    c === value ? 'text-brand-500 font-medium' : 'text-neutral-800'
+                  }`}
+                >
+                  {c}
+                  {c === value && <Check size={13} className="text-brand-500" />}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function Products() {
@@ -197,7 +283,7 @@ export default function Products() {
     setSaving(false)
   }
 
-  const categories = [...new Set(products.map(p => p.category).filter(Boolean))]
+  const categories = CATEGORIES
 
   const filtered = products.filter(p => {
     if (search) {
@@ -247,7 +333,7 @@ export default function Products() {
         >
           <option value="">All Categories</option>
           {categories.map(c => (
-            <option key={c} value={c!}>{c}</option>
+            <option key={c} value={c}>{c}</option>
           ))}
         </select>
         <select
@@ -554,12 +640,9 @@ export default function Products() {
                 </div>
                 <div>
                   <label className="block text-[13px] font-medium text-neutral-700 mb-1">Category</label>
-                  <input
-                    type="text"
+                  <CategorySelect
                     value={formData.category || ''}
-                    onChange={e => setFormData(f => ({ ...f, category: e.target.value }))}
-                    className="w-full h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    placeholder="e.g., Display, Accessory, Kit"
+                    onChange={v => setFormData(f => ({ ...f, category: v }))}
                   />
                 </div>
               </div>
