@@ -3,6 +3,7 @@ import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
 import type { Product, Location } from '../lib/types'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
+import SearchableSelect from '../components/SearchableSelect'
 
 type Mode = 'serial_tracked' | 'quantity_only'
 
@@ -197,18 +198,12 @@ export default function StockIn() {
           {/* Product select */}
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-1">Product</label>
-            <select
+            <SearchableSelect
+              options={products.map(p => ({ value: p.id, label: p.name, sublabel: p.sku }))}
               value={productId}
-              onChange={e => setProductId(e.target.value)}
-              className={inputClass}
-            >
-              <option value="">Select a product…</option>
-              {products.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.sku})
-                </option>
-              ))}
-            </select>
+              onChange={setProductId}
+              placeholder="Select a product…"
+            />
           </div>
 
           {/* Warehouse select */}
@@ -216,18 +211,12 @@ export default function StockIn() {
             <label className="block text-sm font-medium text-neutral-700 mb-1">
               Destination Warehouse
             </label>
-            <select
+            <SearchableSelect
+              options={warehouses.map(w => ({ value: w.id, label: w.name }))}
               value={warehouseId}
-              onChange={e => setWarehouseId(e.target.value)}
-              className={inputClass}
-            >
-              <option value="">Select a warehouse…</option>
-              {warehouses.map(w => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
+              onChange={setWarehouseId}
+              placeholder="Select a warehouse…"
+            />
           </div>
 
           {mode === 'serial_tracked' ? (

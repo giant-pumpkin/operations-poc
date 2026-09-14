@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import type { ItemStatus } from '../lib/types'
 import { StatusBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
+import SearchableSelect from '../components/SearchableSelect'
 
 interface TrackedSummary {
   productId: string
@@ -160,16 +161,13 @@ export default function Stock() {
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-semibold text-neutral-800">Quantity-Only Stock</h2>
-          <select
+          <SearchableSelect
+            options={warehouses.map(w => ({ value: w.id, label: w.name }))}
             value={warehouseFilter}
-            onChange={e => setWarehouseFilter(e.target.value)}
-            className="text-[13px] border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-neutral-0 text-neutral-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1"
-          >
-            <option value="">All Warehouses</option>
-            {warehouses.map(w => (
-              <option key={w.id} value={w.id}>{w.name}</option>
-            ))}
-          </select>
+            onChange={setWarehouseFilter}
+            placeholder="All Warehouses"
+            className="w-52"
+          />
         </div>
 
         <div className="border border-neutral-200 rounded-xl overflow-hidden">

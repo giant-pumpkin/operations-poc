@@ -3,6 +3,7 @@ import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
 import type { Product, Location } from '../lib/types'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
+import SearchableSelect from '../components/SearchableSelect'
 import { Plus, Trash2 } from 'lucide-react'
 
 interface ComponentRow {
@@ -203,16 +204,12 @@ export default function KitAssembly() {
         {/* Kit product */}
         <div>
           <label className="block text-sm font-medium text-neutral-700 mb-1">Kit Product</label>
-          <select
+          <SearchableSelect
+            options={kitProducts.map(p => ({ value: p.id, label: p.name, sublabel: p.sku }))}
             value={selectedKit}
-            onChange={e => setSelectedKit(e.target.value)}
-            className="w-full h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="">Select a kit...</option>
-            {kitProducts.map(p => (
-              <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
-            ))}
-          </select>
+            onChange={setSelectedKit}
+            placeholder="Select a kit…"
+          />
         </div>
 
         {/* Serial number */}
@@ -230,16 +227,12 @@ export default function KitAssembly() {
         {/* Warehouse */}
         <div>
           <label className="block text-sm font-medium text-neutral-700 mb-1">Warehouse</label>
-          <select
+          <SearchableSelect
+            options={warehouses.map(w => ({ value: w.id, label: w.name }))}
             value={warehouseId}
-            onChange={e => setWarehouseId(e.target.value)}
-            className="w-full h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="">Select warehouse...</option>
-            {warehouses.map(w => (
-              <option key={w.id} value={w.id}>{w.name}</option>
-            ))}
-          </select>
+            onChange={setWarehouseId}
+            placeholder="Select warehouse…"
+          />
         </div>
 
         {/* Components */}
@@ -282,20 +275,17 @@ export default function KitAssembly() {
             {/* Add component */}
             {availableToAdd.length > 0 && (
               <div className="flex items-center gap-2 mt-3">
-                <select
+                <SearchableSelect
+                  options={availableToAdd.map(p => ({ value: p.id, label: p.name, sublabel: p.sku }))}
                   value={addProductId}
-                  onChange={e => setAddProductId(e.target.value)}
-                  className="flex-1 h-8 px-2 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                >
-                  <option value="">Add component...</option>
-                  {availableToAdd.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
-                  ))}
-                </select>
+                  onChange={setAddProductId}
+                  placeholder="Add component…"
+                  className="flex-1"
+                />
                 <button
                   onClick={addComponent}
                   disabled={!addProductId}
-                  className="h-8 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 flex items-center gap-1"
+                  className="h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 flex items-center gap-1"
                 >
                   <Plus size={14} /> Add
                 </button>

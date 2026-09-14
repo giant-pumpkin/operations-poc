@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import type { Product, Location, MovementType } from '../lib/types'
 import { MovementBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
+import SearchableSelect from '../components/SearchableSelect'
 
 interface MovementRow {
   id: string
@@ -87,44 +88,35 @@ export default function Movements() {
       <div className="flex flex-wrap items-end gap-3 mb-4">
         <div>
           <label className="block text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500 mb-1">Type</label>
-          <select
+          <SearchableSelect
+            options={MOVEMENT_TYPES.map(t => ({ value: t, label: t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }))}
             value={filterType}
-            onChange={e => setFilterType(e.target.value)}
-            className="h-10 rounded-lg border border-neutral-200 bg-neutral-0 px-3 text-[13px] text-neutral-700 min-w-36 focus:outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="">All types</option>
-            {MOVEMENT_TYPES.map(t => (
-              <option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
-            ))}
-          </select>
+            onChange={setFilterType}
+            placeholder="All Types"
+            className="min-w-36"
+          />
         </div>
 
         <div>
           <label className="block text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500 mb-1">Product</label>
-          <select
+          <SearchableSelect
+            options={products.map(p => ({ value: p.id, label: p.name, sublabel: p.sku }))}
             value={filterProduct}
-            onChange={e => setFilterProduct(e.target.value)}
-            className="h-10 rounded-lg border border-neutral-200 bg-neutral-0 px-3 text-[13px] text-neutral-700 min-w-44 focus:outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="">All products</option>
-            {products.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+            onChange={setFilterProduct}
+            placeholder="All Products"
+            className="min-w-44"
+          />
         </div>
 
         <div>
           <label className="block text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500 mb-1">Location</label>
-          <select
+          <SearchableSelect
+            options={locations.map(l => ({ value: l.id, label: l.name }))}
             value={filterLocation}
-            onChange={e => setFilterLocation(e.target.value)}
-            className="h-10 rounded-lg border border-neutral-200 bg-neutral-0 px-3 text-[13px] text-neutral-700 min-w-44 focus:outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="">All locations</option>
-            {locations.map(l => (
-              <option key={l.id} value={l.id}>{l.name}</option>
-            ))}
-          </select>
+            onChange={setFilterLocation}
+            placeholder="All Locations"
+            className="min-w-44"
+          />
         </div>
 
         <div>

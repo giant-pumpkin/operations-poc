@@ -4,7 +4,8 @@ import type { Product, InventoryItem, WarehouseStock, StockMovement, KitTemplate
 import { TrackingBadge, StatusBadge, MovementBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
-import { Plus, X, Search, Pencil, ChevronDown, Check } from 'lucide-react'
+import { Plus, X, Search, Pencil } from 'lucide-react'
+import SearchableSelect from '../components/SearchableSelect'
 
 const CATEGORIES = [
   'Adapters', 'Cable', 'Ceiling Mount', 'Data storage', 'Demo', 'Display',
@@ -31,82 +32,15 @@ const EMPTY_FORM: Partial<Product> = {
   active: true,
 }
 
-function CategorySelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const ref = useState<HTMLDivElement | null>(null)
-
-  const filtered = query
-    ? CATEGORIES.filter(c => c.toLowerCase().includes(query.toLowerCase()))
-    : CATEGORIES
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref[0] && !ref[0].contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open, ref])
-
-  return (
-    <div className="relative" ref={el => { ref[0] = el }}>
-      <button
-        type="button"
-        onClick={() => { setOpen(!open); setQuery('') }}
-        className="w-full h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-brand-500"
-      >
-        <span className={value ? 'text-neutral-900' : 'text-neutral-400'}>
-          {value || 'Select category...'}
-        </span>
-        <ChevronDown size={14} className="text-neutral-400 shrink-0" />
-      </button>
-
-      {open && (
-        <div className="absolute z-50 mt-1 w-full bg-neutral-0 border border-neutral-200 rounded-lg shadow-md overflow-hidden">
-          <div className="p-1.5 border-b border-neutral-200">
-            <input
-              type="text"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search categories..."
-              autoFocus
-              className="w-full h-8 px-2.5 bg-neutral-50 border border-neutral-200 rounded-md text-[12px] placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-brand-500"
-            />
-          </div>
-          <div className="max-h-48 overflow-y-auto py-1">
-            {value && (
-              <button
-                type="button"
-                onClick={() => { onChange(''); setOpen(false) }}
-                className="w-full px-3 py-1.5 text-left text-[12px] text-neutral-400 italic hover:bg-neutral-50"
-              >
-                Clear selection
-              </button>
-            )}
-            {filtered.length === 0 ? (
-              <div className="px-3 py-2 text-[12px] text-neutral-400">No matches</div>
-            ) : (
-              filtered.map(c => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => { onChange(c); setOpen(false) }}
-                  className={`w-full px-3 py-1.5 text-left text-[12px] flex items-center justify-between hover:bg-neutral-50 ${
-                    c === value ? 'text-brand-500 font-medium' : 'text-neutral-800'
-                  }`}
-                >
-                  {c}
-                  {c === value && <Check size={13} className="text-brand-500" />}
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+const CATEGORY_OPTIONS = CATEGORIES.map(c => ({ value: c, label: c }))
+const TRACKING_OPTIONS = [
+  { value: 'serial_tracked', label: 'Serial Tracked' },
+  { value: 'quantity_only', label: 'Quantity Only' },
+]
+const ACTIVE_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+]
 
 export default function Products() {
   const { toast } = useToast()
@@ -283,8 +217,6 @@ export default function Products() {
     setSaving(false)
   }
 
-  const categories = CATEGORIES
-
   const filtered = products.filter(p => {
     if (search) {
       const q = search.toLowerCase()
@@ -326,34 +258,27 @@ export default function Products() {
             className="w-full h-10 pl-8 pr-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
-        <select
+        <SearchableSelect
+          options={CATEGORY_OPTIONS}
           value={categoryFilter}
-          onChange={e => setCategoryFilter(e.target.value)}
-          className="h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] text-neutral-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
-        >
-          <option value="">All Categories</option>
-          {categories.map(c => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-        <select
+          onChange={setCategoryFilter}
+          placeholder="All Categories"
+          className="w-48"
+        />
+        <SearchableSelect
+          options={TRACKING_OPTIONS}
           value={trackingFilter}
-          onChange={e => setTrackingFilter(e.target.value)}
-          className="h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] text-neutral-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
-        >
-          <option value="">All Tracking</option>
-          <option value="serial_tracked">Serial Tracked</option>
-          <option value="quantity_only">Quantity Only</option>
-        </select>
-        <select
+          onChange={setTrackingFilter}
+          placeholder="All Tracking"
+          className="w-40"
+        />
+        <SearchableSelect
+          options={ACTIVE_OPTIONS}
           value={activeFilter}
-          onChange={e => setActiveFilter(e.target.value)}
-          className="h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] text-neutral-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
-        >
-          <option value="">All Status</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-        </select>
+          onChange={setActiveFilter}
+          placeholder="All Status"
+          className="w-36"
+        />
       </div>
 
       {/* Table */}
@@ -628,21 +553,21 @@ export default function Products() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[13px] font-medium text-neutral-700 mb-1">Tracking Type *</label>
-                  <select
+                  <SearchableSelect
+                    options={TRACKING_OPTIONS}
                     value={formData.tracking_type || 'serial_tracked'}
-                    onChange={e => setFormData(f => ({ ...f, tracking_type: e.target.value as any }))}
+                    onChange={v => setFormData(f => ({ ...f, tracking_type: v as any }))}
                     disabled={!!editingProduct}
-                    className="w-full h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-neutral-100 disabled:text-neutral-400"
-                  >
-                    <option value="serial_tracked">Serial Tracked</option>
-                    <option value="quantity_only">Quantity Only</option>
-                  </select>
+                    placeholder="Select tracking type"
+                  />
                 </div>
                 <div>
                   <label className="block text-[13px] font-medium text-neutral-700 mb-1">Category</label>
-                  <CategorySelect
+                  <SearchableSelect
+                    options={CATEGORY_OPTIONS}
                     value={formData.category || ''}
                     onChange={v => setFormData(f => ({ ...f, category: v }))}
+                    placeholder="Select category..."
                   />
                 </div>
               </div>

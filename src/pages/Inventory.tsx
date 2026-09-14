@@ -4,6 +4,7 @@ import type { InventoryItem, Product, Location, StockMovement } from '../lib/typ
 import { StatusBadge, MovementBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
 import { Search, X, ArrowRight } from 'lucide-react'
+import SearchableSelect from '../components/SearchableSelect'
 
 type ItemStatus = InventoryItem['status']
 
@@ -91,26 +92,27 @@ export default function Inventory() {
             className={`${inputClass} pl-8 w-64`}
           />
         </div>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={inputClass}>
-          <option value="">All Statuses</option>
-          {ALL_STATUSES.map(s => (
-            <option key={s} value={s}>
-              {s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-            </option>
-          ))}
-        </select>
-        <select value={productFilter} onChange={e => setProductFilter(e.target.value)} className={inputClass}>
-          <option value="">All Products</option>
-          {products.map(p => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-        <select value={locationFilter} onChange={e => setLocationFilter(e.target.value)} className={inputClass}>
-          <option value="">All Locations</option>
-          {locations.map(l => (
-            <option key={l.id} value={l.id}>{l.name}</option>
-          ))}
-        </select>
+        <SearchableSelect
+          options={ALL_STATUSES.map(s => ({
+            value: s,
+            label: s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+          }))}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          placeholder="All Statuses"
+        />
+        <SearchableSelect
+          options={products.map(p => ({ value: p.id, label: p.name, sublabel: p.sku }))}
+          value={productFilter}
+          onChange={setProductFilter}
+          placeholder="All Products"
+        />
+        <SearchableSelect
+          options={locations.map(l => ({ value: l.id, label: l.name }))}
+          value={locationFilter}
+          onChange={setLocationFilter}
+          placeholder="All Locations"
+        />
         <span className="text-[12px] text-neutral-500 ml-auto">{filtered.length} items</span>
       </div>
 
