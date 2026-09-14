@@ -1,0 +1,98 @@
+export interface Company {
+  id: string
+  name: string
+  status: string
+  country: string | null
+}
+
+export interface Location {
+  id: string
+  cl_company_id: string
+  name: string
+  type: 'client_site' | 'warehouse'
+  address: string | null
+  city: string | null
+  country: string | null
+  company?: Company
+}
+
+export interface Profile {
+  id: string
+  full_name: string
+  email: string
+}
+
+export interface Product {
+  id: string
+  sku: string
+  name: string
+  manufacturer: string | null
+  model: string | null
+  tracking_type: 'serial_tracked' | 'quantity_only'
+  images: string | null
+  category: string | null
+  player: boolean
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface InventoryItem {
+  id: string
+  product_id: string
+  location_id: string | null
+  serial_number: string
+  status: 'available' | 'reserved' | 'installed' | 'in_transit' | 'defect'
+  created_at: string
+  updated_at: string
+  product?: Product
+  location?: Location
+}
+
+export interface WarehouseStock {
+  id: string
+  product_id: string
+  location_id: string
+  quantity: number
+  updated_at: string
+  product?: Product
+  location?: Location
+}
+
+export interface StockMovement {
+  id: string
+  product_id: string
+  inventory_item_id: string | null
+  from_location: string | null
+  to_location: string | null
+  performed_by: string
+  movement_type: 'stock_in' | 'stock_out' | 'transfer' | 'adjustment'
+  quantity: number
+  movement_time: string
+  notes: string | null
+  product?: Product
+  inventory_item?: InventoryItem
+  from_loc?: Location
+  to_loc?: Location
+  performer?: Profile
+}
+
+export interface KitTemplate {
+  id: string
+  product_registry_id: string
+  component_product_id: string
+  default_quantity: number
+  component_product?: Product
+}
+
+export interface KitItemComponent {
+  id: string
+  inventory_item_id: string
+  component_product_id: string
+  quantity: number
+  component_product?: Product
+}
+
+export type ItemStatus = InventoryItem['status']
+export type MovementType = StockMovement['movement_type']
+export type TrackingType = Product['tracking_type']

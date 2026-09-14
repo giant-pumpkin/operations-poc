@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'DM Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/dmmono/v14/aFTU7PB1QTsUX8KYhh2aBYyMcKdK.woff2') format('woff2');
+}
+
+@theme {
+  --color-neutral-0: #FFFFFF;
+  --color-neutral-25: #FCFCFA;
+  --color-neutral-50: #F6F7F3;
+  --color-neutral-100: #F0F1EC;
+  --color-neutral-200: #E1E3DC;
+  --color-neutral-300: #CACDC4;
+  --color-neutral-400: #A2A59C;
+  --color-neutral-500: #73776E;
+  --color-neutral-600: #595D56;
+  --color-neutral-700: #3F3F3F;
+  --color-neutral-800: #202020;
+  --color-neutral-900: #000000;
+
+  --color-brand-50: #FFF2E8;
+  --color-brand-100: #FFDCC4;
+  --color-brand-500: #FF6700;
+  --color-brand-600: #E85E00;
+  --color-brand-700: #C94F00;
+
+  --color-success-50: #ECF8F2;
+  --color-success-500: #62C696;
+  --color-success-700: #278F63;
+
+  --color-warning-50: #FFF9E6;
+  --color-warning-500: #F1BF00;
+  --color-warning-700: #9C7800;
+
+  --color-danger-50: #FDEDEC;
+  --color-danger-500: #F2584B;
+  --color-danger-700: #B43128;
+
+  --color-info-50: #EDF4FF;
+  --color-info-500: #4C8FF7;
+  --color-info-700: #2466B9;
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-neutral-900);
+  background-color: var(--color-neutral-50);
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-300);
+  border-radius: 3px;
+}
