@@ -4,12 +4,17 @@ import type { InventoryItem, Product, Location, Company, StockMovement } from '.
 import { StatusBadge, MovementBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
-import { Search, X, ArrowRight, RefreshCw } from 'lucide-react'
+import { Search, X, ArrowRight, RefreshCw, Pencil, Check } from 'lucide-react'
 import SearchableSelect from '../components/SearchableSelect'
 
 type ItemStatus = InventoryItem['status']
 
 const ALL_STATUSES: ItemStatus[] = ['available', 'scheduled', 'in_transit', 'installed', 'defect', 'in_repair']
+
+function formatDate(d: Date): string {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`
+}
 
 function warrantyLabel(item: InventoryItem): { text: string; style: string } {
   if (item.warranty_duration_years == null) return { text: 'No warranty', style: 'text-neutral-400' }
@@ -40,6 +45,13 @@ export default function Inventory() {
   const [showReallocate, setShowReallocate] = useState(false)
   const [reallocateTarget, setReallocateTarget] = useState('')
   const [reallocating, setReallocating] = useState(false)
+
+  // Inline editing
+  const [editingClient, setEditingClient] = useState(false)
+  const [editClientValue, setEditClientValue] = useState('')
+  const [editingWarranty, setEditingWarranty] = useState(false)
+  const [editWarrantyValue, setEditWarrantyValue] = useState('')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -78,6 +90,8 @@ export default function Inventory() {
 
   function handleSelectItem(item: InventoryItem) {
     setSelectedItem(item)
+    setEditingClient(false)
+    setEditingWarranty(false)
     fetchMovements(item.id)
   }
 
@@ -147,6 +161,95 @@ export default function Inventory() {
       toast('error', err.message || 'Reallocation failed')
     } finally {
       setReallocating(false)
+    }
+  }
+
+  function startEditClient() {
+    if (!selectedItem) return
+    const client = selectedItem.allocated_client as unknown as Company | null
+    setEditClientValue(client?.id ?? '')
+    setEditingClient(true)
+  }
+
+  async function saveClient() {
+    if (!selectedItem) return
+    setSaving(true)
+    try {
+      const now = new Date().toISOString()
+      const newClientId = editClientValue || null
+      const oldClient = (selectedItem.allocated_client as unknown as Company | null)?.name ?? 'Unallocated'
+      const newClientName = newClientId ? companies.find(c => c.id === newClientId)?.name : 'Unallocated'
+
+      const { error: updateErr } = await supabase
+        .from('inv_inventory_item')
+        .update({ allocated_client_id: newClientId, updated_at: now })
+        .eq('id', selectedItem.id)
+      if (updateErr) throw updateErr
+
+      const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
+        product_id: selectedItem.product_id,
+        inventory_item_id: selectedItem.id,
+        from_location: selectedItem.location_id,
+        to_location: selectedItem.location_id,
+        performed_by: BOSS_PROFILE_ID,
+        movement_type: 'adjustment',
+        quantity: 1,
+        movement_time: now,
+        notes: `Reallocated from ${oldClient} to ${newClientName}`,
+      })
+      if (moveErr) throw moveErr
+
+      toast('success', `Client updated to ${newClientName}`)
+      setEditingClient(false)
+      await fetchData()
+      // Re-select to refresh detail
+      const { data: refreshed } = await supabase
+        .from('inv_inventory_item')
+        .select('*, product:inv_product_registry(id,name,sku,category), location:mock_cl_locations(id,name,type), allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id,name)')
+        .eq('id', selectedItem.id)
+        .single()
+      if (refreshed) {
+        setSelectedItem(refreshed as unknown as InventoryItem)
+        fetchMovements(refreshed.id)
+      }
+    } catch (err: any) {
+      toast('error', err.message || 'Failed to update client')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function startEditWarranty() {
+    if (!selectedItem) return
+    setEditWarrantyValue(selectedItem.warranty_duration_years != null ? String(selectedItem.warranty_duration_years) : '')
+    setEditingWarranty(true)
+  }
+
+  async function saveWarranty() {
+    if (!selectedItem) return
+    setSaving(true)
+    try {
+      const now = new Date().toISOString()
+      const newDuration = editWarrantyValue ? Number(editWarrantyValue) : null
+
+      const { error } = await supabase
+        .from('inv_inventory_item')
+        .update({ warranty_duration_years: newDuration, updated_at: now })
+        .eq('id', selectedItem.id)
+      if (error) throw error
+
+      toast('success', newDuration ? `Warranty set to ${newDuration} years` : 'Warranty removed')
+      setEditingWarranty(false)
+      const { data: refreshed } = await supabase
+        .from('inv_inventory_item')
+        .select('*, product:inv_product_registry(id,name,sku,category), location:mock_cl_locations(id,name,type), allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id,name)')
+        .eq('id', selectedItem.id)
+        .single()
+      if (refreshed) setSelectedItem(refreshed as unknown as InventoryItem)
+    } catch (err: any) {
+      toast('error', err.message || 'Failed to update warranty')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -303,7 +406,7 @@ export default function Inventory() {
                         </td>
                         <td className="px-3 py-2 text-[12px] text-neutral-700">{loc?.name ?? 'In Transit'}</td>
                         <td className="px-3 py-2"><StatusBadge status={item.status} /></td>
-                        <td className="px-3 py-2 text-[12px] text-neutral-500">{new Date(item.created_at).toLocaleDateString()}</td>
+                        <td className="px-3 py-2 text-[12px] text-neutral-500">{formatDate(new Date(item.created_at))}</td>
                       </tr>
                     )
                   })
@@ -346,10 +449,45 @@ export default function Inventory() {
                     </p>
                   </div>
                   <div>
-                    <span className="text-[11px] uppercase tracking-[0.06em] text-neutral-500">Allocated Client</span>
-                    <p className="text-[13px] text-neutral-800">
-                      {client?.name ?? <span className="text-neutral-400 italic">Unallocated</span>}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] uppercase tracking-[0.06em] text-neutral-500">Allocated Client</span>
+                      {!editingClient && (
+                        <button onClick={startEditClient} className="text-neutral-400 hover:text-neutral-600">
+                          <Pencil size={11} />
+                        </button>
+                      )}
+                    </div>
+                    {editingClient ? (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <SearchableSelect
+                          options={[
+                            { value: '__unallocated__', label: 'Unallocated' },
+                            ...companies.map(c => ({ value: c.id, label: c.name })),
+                          ]}
+                          value={editClientValue || '__unallocated__'}
+                          onChange={v => setEditClientValue(v === '__unallocated__' ? '' : v)}
+                          placeholder="Select client…"
+                          className="flex-1"
+                        />
+                        <button
+                          onClick={saveClient}
+                          disabled={saving}
+                          className="p-1.5 rounded-md bg-neutral-900 text-neutral-0 hover:bg-neutral-800 disabled:opacity-40 transition-colors"
+                        >
+                          <Check size={13} />
+                        </button>
+                        <button
+                          onClick={() => setEditingClient(false)}
+                          className="p-1.5 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 transition-colors"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-[13px] text-neutral-800">
+                        {client?.name ?? <span className="text-neutral-400 italic">Unallocated</span>}
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-4">
                     <div>
@@ -370,12 +508,48 @@ export default function Inventory() {
                   <h4 className="text-[11px] uppercase tracking-[0.06em] text-neutral-500">Warranty</h4>
                   <div className="flex gap-4">
                     <div>
-                      <span className="text-[11px] text-neutral-400">Duration</span>
-                      <p className="text-[13px] text-neutral-700">
-                        {selectedItem.warranty_duration_years != null
-                          ? `${selectedItem.warranty_duration_years} years`
-                          : '—'}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-neutral-400">Duration</span>
+                        {!editingWarranty && (
+                          <button onClick={startEditWarranty} className="text-neutral-400 hover:text-neutral-600">
+                            <Pencil size={10} />
+                          </button>
+                        )}
+                      </div>
+                      {editingWarranty ? (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <SearchableSelect
+                            options={[
+                              { value: '', label: 'None' },
+                              { value: '3', label: '3 years' },
+                              { value: '5', label: '5 years' },
+                            ]}
+                            value={editWarrantyValue}
+                            onChange={setEditWarrantyValue}
+                            placeholder="None"
+                            className="w-28"
+                          />
+                          <button
+                            onClick={saveWarranty}
+                            disabled={saving}
+                            className="p-1.5 rounded-md bg-neutral-900 text-neutral-0 hover:bg-neutral-800 disabled:opacity-40 transition-colors"
+                          >
+                            <Check size={13} />
+                          </button>
+                          <button
+                            onClick={() => setEditingWarranty(false)}
+                            className="p-1.5 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 transition-colors"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-[13px] text-neutral-700">
+                          {selectedItem.warranty_duration_years != null
+                            ? `${selectedItem.warranty_duration_years} years`
+                            : '—'}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <span className="text-[11px] text-neutral-400">Status</span>
@@ -402,7 +576,7 @@ export default function Inventory() {
                             <div className="flex items-center justify-between mb-1">
                               <MovementBadge type={m.movement_type} />
                               <span className="text-neutral-500">
-                                {new Date(m.movement_time).toLocaleDateString()}
+                                {formatDate(new Date(m.movement_time))}
                               </span>
                             </div>
                             <div className="flex items-center gap-1 text-neutral-600">

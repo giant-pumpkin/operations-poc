@@ -94,6 +94,8 @@ export default function Transfer() {
   const sourceStock = warehouseStock.find(s => (s.location as any)?.id === sourceWarehouseId)
   const maxQty = sourceStock?.quantity ?? 0
 
+  const exceedsMax = mode === 'untracked' && Number(transferQty) > maxQty && maxQty > 0
+
   const sameLocationError = (() => {
     if (!destinationId) return false
     if (mode === 'tracked') {
@@ -340,11 +342,13 @@ export default function Transfer() {
                   Quantity <span className="text-neutral-400 font-normal">(max {maxQty})</span>
                 </label>
                 <input
-                  type="number"
-                  min={1}
-                  max={maxQty}
+                  type="text"
+                  inputMode="numeric"
                   value={transferQty}
-                  onChange={e => setTransferQty(e.target.value)}
+                  onChange={e => {
+                    const v = e.target.value.replace(/\D/g, '')
+                    setTransferQty(v)
+                  }}
                   className="w-32 h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
@@ -385,9 +389,9 @@ export default function Transfer() {
             >
               Review Transfer
             </button>
-            {sameLocationError && (
+            {(sameLocationError || exceedsMax) && (
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg bg-[#2b2b2e] text-neutral-0 text-[12px] font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
-                Cannot transfer to the same location
+                {sameLocationError ? 'Cannot transfer to the same location' : 'Quantity exceeds maximum'}
                 <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] border-t-[#2b2b2e]" />
               </div>
             )}
