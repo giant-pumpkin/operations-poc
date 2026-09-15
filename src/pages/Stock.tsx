@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { ItemStatus } from '../lib/types'
+import { ChevronRight } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 
 interface TrackedItem {
@@ -28,22 +29,78 @@ interface Warehouse {
   name: string
 }
 
-interface TrackedSummary {
-  key: string
-  productName: string
-  sku: string
+type StatusCounts = Record<ItemStatus, number>
+
+interface PoolRow {
   clientPool: string
-  counts: Record<ItemStatus, number>
+  counts: StatusCounts
   total: number
 }
 
+interface ProductGroup {
+  productId: string
+  productName: string
+  sku: string
+  counts: StatusCounts
+  total: number
+  pools: PoolRow[]
+}
+
 const DISPLAY_STATUSES: ItemStatus[] = ['available', 'scheduled', 'in_transit', 'installed', 'defect', 'in_repair']
+const emptyCounts = (): StatusCounts => ({
+  available: 0, scheduled: 0, installed: 0, in_transit: 0, defect: 0, in_repair: 0, written_off: 0,
+})
+
+function ExpandableRows({ pools, expanded }: { pools: PoolRow[]; expanded: boolean }) {
+  const ref = useRef<HTMLTableSectionElement>(null)
+  const [height, setHeight] = useState(0)
+
+  useEffect(() => {
+    if (ref.current) {
+      setHeight(ref.current.scrollHeight)
+    }
+  }, [pools, expanded])
+
+  return (
+    <tbody
+      ref={ref}
+      className="overflow-hidden transition-[max-height,opacity] duration-200 ease-in-out"
+      style={{
+        maxHeight: expanded ? height : 0,
+        opacity: expanded ? 1 : 0,
+        display: expanded ? undefined : 'none',
+      }}
+    >
+      {pools.map(pool => (
+        <tr key={pool.clientPool} className="bg-neutral-50/60">
+          <td className="px-3 py-1.5 text-[12px] text-neutral-800 pl-10">
+            {pool.clientPool === 'Unallocated' ? (
+              <span className="text-neutral-400 italic">Unallocated</span>
+            ) : pool.clientPool}
+          </td>
+          <td className="px-3 py-1.5" />
+          {DISPLAY_STATUSES.map(s => (
+            <td key={s} className="px-3 py-1.5 font-mono text-[12px] text-center">
+              {pool.counts[s] > 0 ? (
+                <span className="text-neutral-700">{pool.counts[s]}</span>
+              ) : (
+                <span className="text-neutral-300">0</span>
+              )}
+            </td>
+          ))}
+          <td className="px-3 py-1.5 font-mono text-[12px] text-neutral-700 text-right">{pool.total}</td>
+        </tr>
+      ))}
+    </tbody>
+  )
+}
 
 export default function Stock() {
   const [trackedItems, setTrackedItems] = useState<TrackedItem[]>([])
   const [untracked, setUntracked] = useState<UntrackedRow[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [activeTab, setActiveTab] = useState('')
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -101,46 +158,69 @@ export default function Stock() {
     load()
   }, [])
 
-  const tracked = useMemo(() => {
+  const productGroups = useMemo(() => {
     const items = activeTab
       ? trackedItems.filter(i => i.locationId === activeTab)
       : trackedItems
 
-    const grouped = new Map<string, TrackedSummary>()
-    const emptyCounts = (): Record<ItemStatus, number> => ({
-      available: 0, scheduled: 0, installed: 0, in_transit: 0, defect: 0, in_repair: 0, written_off: 0,
-    })
+    const products = new Map<string, ProductGroup>()
 
     for (const item of items) {
-      const key = `${item.productId}__${item.clientId ?? 'none'}`
-      let entry = grouped.get(key)
-      if (!entry) {
-        entry = {
-          key,
+      let group = products.get(item.productId)
+      if (!group) {
+        group = {
+          productId: item.productId,
           productName: item.productName,
           sku: item.sku,
-          clientPool: item.clientName,
           counts: emptyCounts(),
           total: 0,
+          pools: [],
         }
-        grouped.set(key, entry)
+        products.set(item.productId, group)
       }
-      entry.counts[item.status]++
-      entry.total++
+      group.counts[item.status]++
+      group.total++
     }
 
-    return Array.from(grouped.values()).sort((a, b) => {
-      const nameCompare = a.productName.localeCompare(b.productName)
-      if (nameCompare !== 0) return nameCompare
-      if (a.clientPool === 'Unallocated') return 1
-      if (b.clientPool === 'Unallocated') return -1
-      return a.clientPool.localeCompare(b.clientPool)
-    })
+    for (const group of products.values()) {
+      const poolMap = new Map<string, PoolRow>()
+      const groupItems = items.filter(i => i.productId === group.productId)
+
+      for (const item of groupItems) {
+        const poolKey = item.clientId ?? 'none'
+        let pool = poolMap.get(poolKey)
+        if (!pool) {
+          pool = { clientPool: item.clientName, counts: emptyCounts(), total: 0 }
+          poolMap.set(poolKey, pool)
+        }
+        pool.counts[item.status]++
+        pool.total++
+      }
+
+      group.pools = Array.from(poolMap.values()).sort((a, b) => {
+        if (a.clientPool === 'Unallocated') return 1
+        if (b.clientPool === 'Unallocated') return -1
+        return a.clientPool.localeCompare(b.clientPool)
+      })
+    }
+
+    return Array.from(products.values()).sort((a, b) =>
+      a.productName.localeCompare(b.productName)
+    )
   }, [trackedItems, activeTab])
 
   const filteredUntracked = activeTab
     ? untracked.filter(r => r.warehouseId === activeTab)
     : untracked
+
+  function toggleProduct(productId: string) {
+    setExpandedProducts(prev => {
+      const next = new Set(prev)
+      if (next.has(productId)) next.delete(productId)
+      else next.add(productId)
+      return next
+    })
+  }
 
   if (loading) {
     return (
@@ -182,7 +262,7 @@ export default function Stock() {
       <section className="mb-8">
         <h2 className="text-base font-semibold text-neutral-800 mb-3">Serial-Tracked Items</h2>
 
-        {tracked.length === 0 ? (
+        {productGroups.length === 0 ? (
           <p className="text-[13px] text-neutral-500">No tracked items found.</p>
         ) : (
           <div className="border border-neutral-200 rounded-xl overflow-hidden">
@@ -191,7 +271,6 @@ export default function Stock() {
                 <tr className="bg-neutral-100">
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Product</th>
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">SKU</th>
-                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Client Pool</th>
                   {DISPLAY_STATUSES.map(s => (
                     <th key={s} className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-center">
                       {s.replace(/_/g, ' ')}
@@ -200,29 +279,44 @@ export default function Stock() {
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-right">Total</th>
                 </tr>
               </thead>
-              <tbody>
-                {tracked.map(row => (
-                  <tr key={row.key} className="border-t border-neutral-100 hover:bg-neutral-25 transition-colors duration-120">
-                    <td className="px-3 py-2 text-[12px] text-neutral-800 font-medium">{row.productName}</td>
-                    <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">{row.sku}</td>
-                    <td className="px-3 py-2 text-[12px] text-neutral-700">
-                      {row.clientPool === 'Unallocated' ? (
-                        <span className="text-neutral-400 italic">Unallocated</span>
-                      ) : row.clientPool}
-                    </td>
-                    {DISPLAY_STATUSES.map(s => (
-                      <td key={s} className="px-3 py-2 font-mono text-[12px] text-center">
-                        {row.counts[s] > 0 ? (
-                          <span className="text-neutral-800 font-medium">{row.counts[s]}</span>
-                        ) : (
-                          <span className="text-neutral-300">0</span>
-                        )}
-                      </td>
-                    ))}
-                    <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-semibold">{row.total}</td>
-                  </tr>
-                ))}
-              </tbody>
+              {productGroups.map(group => {
+                const isExpanded = expandedProducts.has(group.productId)
+                return (
+                  <Fragment key={group.productId}>
+                    <tbody>
+                      <tr
+                        onClick={() => toggleProduct(group.productId)}
+                        className={`border-t border-neutral-100 cursor-pointer transition-colors duration-120 ${
+                          isExpanded ? 'bg-neutral-50' : 'hover:bg-neutral-25'
+                        }`}
+                      >
+                        <td className="px-3 py-2 text-[12px] text-neutral-800 font-medium">
+                          <span className="inline-flex items-center gap-1.5">
+                            <ChevronRight
+                              size={14}
+                              strokeWidth={2}
+                              className={`text-neutral-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                            />
+                            {group.productName}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">{group.sku}</td>
+                        {DISPLAY_STATUSES.map(s => (
+                          <td key={s} className="px-3 py-2 font-mono text-[12px] text-center">
+                            {group.counts[s] > 0 ? (
+                              <span className="text-neutral-800 font-medium">{group.counts[s]}</span>
+                            ) : (
+                              <span className="text-neutral-300">0</span>
+                            )}
+                          </td>
+                        ))}
+                        <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-semibold">{group.total}</td>
+                      </tr>
+                    </tbody>
+                    <ExpandableRows pools={group.pools} expanded={isExpanded} />
+                  </Fragment>
+                )
+              })}
             </table>
           </div>
         )}
