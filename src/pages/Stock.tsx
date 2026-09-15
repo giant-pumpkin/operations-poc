@@ -243,7 +243,7 @@ export default function Stock() {
             activeTab === '' ? 'bg-neutral-0 text-neutral-800 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
           }`}
         >
-          All Warehouses
+          All Items
         </button>
         {warehouses.map(w => (
           <button
