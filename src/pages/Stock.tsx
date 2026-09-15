@@ -1,17 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { ItemStatus } from '../lib/types'
-import { StatusBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
-import SearchableSelect from '../components/SearchableSelect'
 
-interface TrackedSummary {
-  key: string
+interface TrackedItem {
+  id: string
+  status: ItemStatus
+  locationId: string | null
+  productId: string
   productName: string
   sku: string
-  clientPool: string
-  counts: Record<ItemStatus, number>
-  total: number
+  clientName: string
+  clientId: string | null
 }
 
 interface UntrackedRow {
@@ -28,13 +28,22 @@ interface Warehouse {
   name: string
 }
 
-const ALL_STATUSES: ItemStatus[] = ['available', 'scheduled', 'in_transit', 'installed', 'defect', 'in_repair']
+interface TrackedSummary {
+  key: string
+  productName: string
+  sku: string
+  clientPool: string
+  counts: Record<ItemStatus, number>
+  total: number
+}
+
+const DISPLAY_STATUSES: ItemStatus[] = ['available', 'scheduled', 'in_transit', 'installed', 'defect', 'in_repair']
 
 export default function Stock() {
-  const [tracked, setTracked] = useState<TrackedSummary[]>([])
+  const [trackedItems, setTrackedItems] = useState<TrackedItem[]>([])
   const [untracked, setUntracked] = useState<UntrackedRow[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-  const [warehouseFilter, setWarehouseFilter] = useState('')
+  const [activeTab, setActiveTab] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -44,7 +53,7 @@ export default function Stock() {
       const [itemsRes, stockRes, locRes] = await Promise.all([
         supabase
           .from('inv_inventory_item')
-          .select('id, status, allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id, name), product:inv_product_registry(id, name, sku)')
+          .select('id, status, location_id, allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id, name), product:inv_product_registry(id, name, sku)')
           .neq('status', 'written_off'),
         supabase
           .from('inv_warehouse_stock')
@@ -56,39 +65,18 @@ export default function Stock() {
       ])
 
       if (itemsRes.data) {
-        const grouped = new Map<string, TrackedSummary>()
-        const emptyCounts = (): Record<ItemStatus, number> => ({
-          available: 0, scheduled: 0, installed: 0, in_transit: 0, defect: 0, in_repair: 0, written_off: 0,
-        })
-        for (const item of itemsRes.data) {
-          const p = item.product as any
-          if (!p) continue
-          const client = item.allocated_client as any
-          const clientName = client?.name ?? 'Unallocated'
-          const key = `${p.id}__${client?.id ?? 'none'}`
-          let entry = grouped.get(key)
-          if (!entry) {
-            entry = {
-              key,
-              productName: p.name,
-              sku: p.sku,
-              clientPool: clientName,
-              counts: emptyCounts(),
-              total: 0,
-            }
-            grouped.set(key, entry)
-          }
-          entry.counts[item.status as ItemStatus]++
-          entry.total++
-        }
-        const sorted = Array.from(grouped.values()).sort((a, b) => {
-          const nameCompare = a.productName.localeCompare(b.productName)
-          if (nameCompare !== 0) return nameCompare
-          if (a.clientPool === 'Unallocated') return 1
-          if (b.clientPool === 'Unallocated') return -1
-          return a.clientPool.localeCompare(b.clientPool)
-        })
-        setTracked(sorted)
+        setTrackedItems(
+          itemsRes.data.map((item: any) => ({
+            id: item.id,
+            status: item.status,
+            locationId: item.location_id,
+            productId: item.product?.id ?? '',
+            productName: item.product?.name ?? '—',
+            sku: item.product?.sku ?? '—',
+            clientName: item.allocated_client?.name ?? 'Unallocated',
+            clientId: item.allocated_client?.id ?? null,
+          }))
+        )
       }
 
       if (stockRes.data) {
@@ -113,8 +101,45 @@ export default function Stock() {
     load()
   }, [])
 
-  const filteredUntracked = warehouseFilter
-    ? untracked.filter(r => r.warehouseId === warehouseFilter)
+  const tracked = useMemo(() => {
+    const items = activeTab
+      ? trackedItems.filter(i => i.locationId === activeTab)
+      : trackedItems
+
+    const grouped = new Map<string, TrackedSummary>()
+    const emptyCounts = (): Record<ItemStatus, number> => ({
+      available: 0, scheduled: 0, installed: 0, in_transit: 0, defect: 0, in_repair: 0, written_off: 0,
+    })
+
+    for (const item of items) {
+      const key = `${item.productId}__${item.clientId ?? 'none'}`
+      let entry = grouped.get(key)
+      if (!entry) {
+        entry = {
+          key,
+          productName: item.productName,
+          sku: item.sku,
+          clientPool: item.clientName,
+          counts: emptyCounts(),
+          total: 0,
+        }
+        grouped.set(key, entry)
+      }
+      entry.counts[item.status]++
+      entry.total++
+    }
+
+    return Array.from(grouped.values()).sort((a, b) => {
+      const nameCompare = a.productName.localeCompare(b.productName)
+      if (nameCompare !== 0) return nameCompare
+      if (a.clientPool === 'Unallocated') return 1
+      if (b.clientPool === 'Unallocated') return -1
+      return a.clientPool.localeCompare(b.clientPool)
+    })
+  }, [trackedItems, activeTab])
+
+  const filteredUntracked = activeTab
+    ? untracked.filter(r => r.warehouseId === activeTab)
     : untracked
 
   if (loading) {
@@ -130,6 +155,29 @@ export default function Stock() {
     <div className="p-6">
       <PageHeader title="Stock Overview" />
 
+      {/* Warehouse tabs */}
+      <div className="flex gap-1 mb-5 bg-neutral-100 rounded-lg p-0.5 w-fit">
+        <button
+          onClick={() => setActiveTab('')}
+          className={`px-4 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-120 ${
+            activeTab === '' ? 'bg-neutral-0 text-neutral-800 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
+          }`}
+        >
+          All Warehouses
+        </button>
+        {warehouses.map(w => (
+          <button
+            key={w.id}
+            onClick={() => setActiveTab(w.id)}
+            className={`px-4 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-120 ${
+              activeTab === w.id ? 'bg-neutral-0 text-neutral-800 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
+            }`}
+          >
+            {w.name}
+          </button>
+        ))}
+      </div>
+
       {/* Tracked Items Summary */}
       <section className="mb-8">
         <h2 className="text-base font-semibold text-neutral-800 mb-3">Serial-Tracked Items</h2>
@@ -144,7 +192,7 @@ export default function Stock() {
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Product</th>
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">SKU</th>
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Client Pool</th>
-                  {ALL_STATUSES.map(s => (
+                  {DISPLAY_STATUSES.map(s => (
                     <th key={s} className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-center">
                       {s.replace(/_/g, ' ')}
                     </th>
@@ -162,7 +210,7 @@ export default function Stock() {
                         <span className="text-neutral-400 italic">Unallocated</span>
                       ) : row.clientPool}
                     </td>
-                    {ALL_STATUSES.map(s => (
+                    {DISPLAY_STATUSES.map(s => (
                       <td key={s} className="px-3 py-2 font-mono text-[12px] text-center">
                         {row.counts[s] > 0 ? (
                           <span className="text-neutral-800 font-medium">{row.counts[s]}</span>
@@ -180,18 +228,9 @@ export default function Stock() {
         )}
       </section>
 
-      {/* Untracked Items by Warehouse */}
+      {/* Untracked Items */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-neutral-800">Quantity-Only Stock</h2>
-          <SearchableSelect
-            options={warehouses.map(w => ({ value: w.id, label: w.name }))}
-            value={warehouseFilter}
-            onChange={setWarehouseFilter}
-            placeholder="All Warehouses"
-            className="w-52"
-          />
-        </div>
+        <h2 className="text-base font-semibold text-neutral-800 mb-3">Quantity-Only Stock</h2>
 
         <div className="border border-neutral-200 rounded-xl overflow-hidden">
           <table className="w-full text-left">
@@ -199,14 +238,14 @@ export default function Stock() {
               <tr className="bg-neutral-100">
                 <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Product</th>
                 <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">SKU</th>
-                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Warehouse</th>
+                {!activeTab && <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Warehouse</th>}
                 <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-right">Quantity</th>
               </tr>
             </thead>
             <tbody>
               {filteredUntracked.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-3 py-6 text-center text-[13px] text-neutral-500">
+                  <td colSpan={activeTab ? 3 : 4} className="px-3 py-6 text-center text-[13px] text-neutral-500">
                     No stock records found.
                   </td>
                 </tr>
@@ -215,7 +254,7 @@ export default function Stock() {
                   <tr key={row.id} className="border-t border-neutral-100 hover:bg-neutral-25 transition-colors duration-120">
                     <td className="px-3 py-2 text-[12px] text-neutral-800">{row.productName}</td>
                     <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">{row.sku}</td>
-                    <td className="px-3 py-2 text-[12px] text-neutral-700">{row.warehouseName}</td>
+                    {!activeTab && <td className="px-3 py-2 text-[12px] text-neutral-700">{row.warehouseName}</td>}
                     <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-medium">{row.quantity}</td>
                   </tr>
                 ))
