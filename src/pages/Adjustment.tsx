@@ -352,30 +352,26 @@ export default function Adjustment() {
 
             {/* Quantity adjustment */}
             {selectedProductId && selectedWarehouseId && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-6 p-3 bg-neutral-50 rounded-lg text-[12px]">
-                  <div>
-                    <span className="text-neutral-500">Current Quantity</span>
-                    <p className="text-neutral-800 font-mono font-semibold text-base">{stockRecord?.quantity ?? 0}</p>
-                  </div>
-                  <div>
-                    <span className="text-neutral-500">New Quantity</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={newQty}
-                      onChange={e => setNewQty(e.target.value.replace(/\D/g, ''))}
-                      className="w-24 h-9 px-2 rounded-lg border border-neutral-200 bg-neutral-0 text-base font-mono font-semibold text-neutral-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                  {diff !== 0 && (
-                    <div>
-                      <span className="text-neutral-500">Difference</span>
-                      <p className={`font-mono font-semibold text-base ${diff > 0 ? 'text-success-700' : 'text-danger-700'}`}>
-                        {diff > 0 ? '+' : ''}{diff}
-                      </p>
-                    </div>
-                  )}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 bg-neutral-50 rounded-lg">
+                  <span className="block text-[11px] text-neutral-500 mb-1">Current Quantity</span>
+                  <p className="text-xl font-mono font-semibold text-neutral-800">{stockRecord?.quantity ?? 0}</p>
+                </div>
+                <div className="p-3 bg-neutral-50 rounded-lg">
+                  <label className="block text-[11px] text-neutral-500 mb-1">New Quantity</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={newQty}
+                    onChange={e => setNewQty(e.target.value.replace(/\D/g, ''))}
+                    className="w-full h-8 px-2 rounded-md border border-neutral-200 bg-neutral-0 text-xl font-mono font-semibold text-neutral-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+                <div className="p-3 bg-neutral-50 rounded-lg">
+                  <span className="block text-[11px] text-neutral-500 mb-1">Difference</span>
+                  <p className={`text-xl font-mono font-semibold ${diff === 0 ? 'text-neutral-400' : diff > 0 ? 'text-success-700' : 'text-danger-700'}`}>
+                    {diff === 0 ? '—' : `${diff > 0 ? '+' : ''}${diff}`}
+                  </p>
                 </div>
               </div>
             )}
