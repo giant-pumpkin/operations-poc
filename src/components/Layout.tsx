@@ -6,6 +6,7 @@ import {
   PackagePlus,
   ArrowRightLeft,
   Undo2,
+  ClipboardMinus,
   ArrowLeftRight,
 } from 'lucide-react'
 
@@ -16,6 +17,7 @@ const NAV_ITEMS = [
   { to: '/stock-in', label: 'Stock In', icon: PackagePlus },
   { to: '/transfer', label: 'Transfer', icon: ArrowRightLeft },
   { to: '/return', label: 'Return', icon: Undo2 },
+  { to: '/adjustment', label: 'Adjustment', icon: ClipboardMinus },
   { to: '/movements', label: 'Movements', icon: ArrowLeftRight },
 ]
 
