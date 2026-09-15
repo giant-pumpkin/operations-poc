@@ -46,6 +46,18 @@ interface ProductGroup {
   pools: PoolRow[]
 }
 
+interface WarehouseRow {
+  warehouseName: string
+  quantity: number
+}
+
+interface UntrackedGroup {
+  productName: string
+  sku: string
+  totalQuantity: number
+  warehouses: WarehouseRow[]
+}
+
 const DISPLAY_STATUSES: ItemStatus[] = ['available', 'scheduled', 'in_transit', 'installed', 'defect', 'in_repair']
 const emptyCounts = (): StatusCounts => ({
   available: 0, scheduled: 0, installed: 0, in_transit: 0, defect: 0, in_repair: 0, written_off: 0,
@@ -72,7 +84,7 @@ function ExpandableRows({ pools, expanded }: { pools: PoolRow[]; expanded: boole
       }}
     >
       {pools.map(pool => (
-        <tr key={pool.clientPool} className="bg-neutral-50/60">
+        <tr key={pool.clientPool} className="bg-neutral-0 border-t border-neutral-100">
           <td className="px-3 py-1.5 text-[12px] text-neutral-800 pl-10">
             {pool.clientPool === 'Unallocated' ? (
               <span className="text-neutral-400 italic">Unallocated</span>
@@ -95,12 +107,43 @@ function ExpandableRows({ pools, expanded }: { pools: PoolRow[]; expanded: boole
   )
 }
 
+function ExpandableWarehouseRows({ warehouses, expanded }: { warehouses: WarehouseRow[]; expanded: boolean }) {
+  const ref = useRef<HTMLTableSectionElement>(null)
+  const [height, setHeight] = useState(0)
+
+  useEffect(() => {
+    if (ref.current) {
+      setHeight(ref.current.scrollHeight)
+    }
+  }, [warehouses, expanded])
+
+  return (
+    <tbody
+      ref={ref}
+      className="overflow-hidden transition-[max-height,opacity] duration-200 ease-in-out"
+      style={{
+        maxHeight: expanded ? height : 0,
+        opacity: expanded ? 1 : 0,
+        display: expanded ? undefined : 'none',
+      }}
+    >
+      {warehouses.map(w => (
+        <tr key={w.warehouseName} className="bg-neutral-0 border-t border-neutral-100">
+          <td colSpan={2} className="px-3 py-1.5 text-[12px] text-neutral-700 pl-10">{w.warehouseName}</td>
+          <td className="px-3 py-1.5 font-mono text-[12px] text-neutral-700 text-right">{w.quantity}</td>
+        </tr>
+      ))}
+    </tbody>
+  )
+}
+
 export default function Stock() {
   const [trackedItems, setTrackedItems] = useState<TrackedItem[]>([])
   const [untracked, setUntracked] = useState<UntrackedRow[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [activeTab, setActiveTab] = useState('')
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
+  const [expandedQtyProducts, setExpandedQtyProducts] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -209,15 +252,40 @@ export default function Stock() {
     )
   }, [trackedItems, activeTab])
 
-  const filteredUntracked = activeTab
-    ? untracked.filter(r => r.warehouseId === activeTab)
-    : untracked
+  const untrackedGroups = useMemo(() => {
+    const filtered = activeTab
+      ? untracked.filter(r => r.warehouseId === activeTab)
+      : untracked
+
+    const grouped = new Map<string, UntrackedGroup>()
+    for (const row of filtered) {
+      const key = `${row.productName}__${row.sku}`
+      let group = grouped.get(key)
+      if (!group) {
+        group = { productName: row.productName, sku: row.sku, totalQuantity: 0, warehouses: [] }
+        grouped.set(key, group)
+      }
+      group.totalQuantity += row.quantity
+      group.warehouses.push({ warehouseName: row.warehouseName, quantity: row.quantity })
+    }
+
+    return Array.from(grouped.values()).sort((a, b) => a.productName.localeCompare(b.productName))
+  }, [untracked, activeTab])
 
   function toggleProduct(productId: string) {
     setExpandedProducts(prev => {
       const next = new Set(prev)
       if (next.has(productId)) next.delete(productId)
       else next.add(productId)
+      return next
+    })
+  }
+
+  function toggleQtyProduct(key: string) {
+    setExpandedQtyProducts(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -268,15 +336,15 @@ export default function Stock() {
           <div className="border border-neutral-200 rounded-xl overflow-hidden">
             <table className="w-full text-left">
               <thead>
-                <tr className="bg-neutral-100">
-                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Product</th>
-                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">SKU</th>
+                <tr className="bg-neutral-800">
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em]">Product</th>
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em]">SKU</th>
                   {DISPLAY_STATUSES.map(s => (
-                    <th key={s} className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-center">
+                    <th key={s} className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">
                       {s.replace(/_/g, ' ')}
                     </th>
                   ))}
-                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-right">Total</th>
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-right">Total</th>
                 </tr>
               </thead>
               {productGroups.map(group => {
@@ -287,7 +355,7 @@ export default function Stock() {
                       <tr
                         onClick={() => toggleProduct(group.productId)}
                         className={`border-t border-neutral-100 cursor-pointer transition-colors duration-120 ${
-                          isExpanded ? 'bg-neutral-50' : 'hover:bg-neutral-25'
+                          isExpanded ? 'bg-neutral-100' : 'bg-neutral-0 hover:bg-neutral-25'
                         }`}
                       >
                         <td className="px-3 py-2 text-[12px] text-neutral-800 font-medium">
@@ -326,36 +394,63 @@ export default function Stock() {
       <section>
         <h2 className="text-base font-semibold text-neutral-800 mb-3">Quantity-Only Stock</h2>
 
-        <div className="border border-neutral-200 rounded-xl overflow-hidden">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-neutral-100">
-                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Product</th>
-                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">SKU</th>
-                {!activeTab && <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Warehouse</th>}
-                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-right">Quantity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredUntracked.length === 0 ? (
-                <tr>
-                  <td colSpan={activeTab ? 3 : 4} className="px-3 py-6 text-center text-[13px] text-neutral-500">
-                    No stock records found.
-                  </td>
+        {untrackedGroups.length === 0 ? (
+          <p className="text-[13px] text-neutral-500">No stock records found.</p>
+        ) : (
+          <div className="border border-neutral-200 rounded-xl overflow-hidden">
+            <table className="w-full text-left" style={{ tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '45%' }} />
+                <col style={{ width: '30%' }} />
+                <col style={{ width: '25%' }} />
+              </colgroup>
+              <thead>
+                <tr className="bg-neutral-800">
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em]">Product</th>
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em]">SKU</th>
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-right">Quantity</th>
                 </tr>
-              ) : (
-                filteredUntracked.map(row => (
-                  <tr key={row.id} className="border-t border-neutral-100 hover:bg-neutral-25 transition-colors duration-120">
-                    <td className="px-3 py-2 text-[12px] text-neutral-800">{row.productName}</td>
-                    <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">{row.sku}</td>
-                    {!activeTab && <td className="px-3 py-2 text-[12px] text-neutral-700">{row.warehouseName}</td>}
-                    <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-medium">{row.quantity}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              {untrackedGroups.map(group => {
+                const key = `${group.productName}__${group.sku}`
+                const isExpanded = expandedQtyProducts.has(key)
+                const hasMultipleWarehouses = group.warehouses.length > 1
+                return (
+                  <Fragment key={key}>
+                    <tbody>
+                      <tr
+                        onClick={() => hasMultipleWarehouses && toggleQtyProduct(key)}
+                        className={`border-t border-neutral-100 transition-colors duration-120 ${
+                          hasMultipleWarehouses ? 'cursor-pointer' : ''
+                        } ${isExpanded ? 'bg-neutral-100' : 'bg-neutral-0 hover:bg-neutral-25'}`}
+                      >
+                        <td className="px-3 py-2 text-[12px] text-neutral-800 font-medium">
+                          <span className="inline-flex items-center gap-1.5">
+                            {hasMultipleWarehouses ? (
+                              <ChevronRight
+                                size={14}
+                                strokeWidth={2}
+                                className={`text-neutral-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                              />
+                            ) : (
+                              <span className="w-3.5" />
+                            )}
+                            {group.productName}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">{group.sku}</td>
+                        <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-semibold">{group.totalQuantity}</td>
+                      </tr>
+                    </tbody>
+                    {hasMultipleWarehouses && (
+                      <ExpandableWarehouseRows warehouses={group.warehouses} expanded={isExpanded} />
+                    )}
+                  </Fragment>
+                )
+              })}
+            </table>
+          </div>
+        )}
       </section>
     </div>
   )
