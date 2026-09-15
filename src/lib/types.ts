@@ -9,7 +9,7 @@ export interface Location {
   id: string
   cl_company_id: string
   name: string
-  type: 'client_site' | 'warehouse'
+  type: 'client_site' | 'warehouse' | 'repair_center'
   address: string | null
   city: string | null
   country: string | null
@@ -42,11 +42,16 @@ export interface InventoryItem {
   product_id: string
   location_id: string | null
   serial_number: string
-  status: 'available' | 'reserved' | 'installed' | 'in_transit' | 'defect'
+  status: 'available' | 'scheduled' | 'installed' | 'in_transit' | 'defect' | 'in_repair'
+  allocated_client_id: string | null
+  warranty_duration_years: number | null
+  warranty_start_date: string | null
+  warranty_end_date: string | null
   created_at: string
   updated_at: string
   product?: Product
   location?: Location
+  allocated_client?: Company
 }
 
 export interface WarehouseStock {
@@ -66,7 +71,7 @@ export interface StockMovement {
   from_location: string | null
   to_location: string | null
   performed_by: string
-  movement_type: 'stock_in' | 'stock_out' | 'transfer' | 'adjustment'
+  movement_type: 'stock_in' | 'stock_out' | 'transfer' | 'return' | 'adjustment'
   quantity: number
   movement_time: string
   notes: string | null

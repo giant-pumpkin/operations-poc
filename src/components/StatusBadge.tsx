@@ -2,16 +2,18 @@ import type { ItemStatus, MovementType, TrackingType } from '../lib/types'
 
 const STATUS_STYLES: Record<ItemStatus, string> = {
   available: 'bg-success-50 text-success-700',
-  reserved: 'bg-info-50 text-info-700',
+  scheduled: 'bg-warning-50 text-warning-700',
   installed: 'bg-[#F3ECFC] text-[#6B3FA0]',
-  in_transit: 'bg-warning-50 text-warning-700',
+  in_transit: 'bg-info-50 text-info-700',
   defect: 'bg-danger-50 text-danger-700',
+  in_repair: 'bg-[#F3E8FF] text-[#7C3AED]',
 }
 
 const MOVEMENT_STYLES: Record<MovementType, string> = {
   stock_in: 'bg-success-50 text-success-700',
   stock_out: 'bg-danger-50 text-danger-700',
   transfer: 'bg-info-50 text-info-700',
+  return: 'bg-[#E0F7F5] text-[#0D9488]',
   adjustment: 'bg-warning-50 text-warning-700',
 }
 

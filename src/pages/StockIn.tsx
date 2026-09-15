@@ -1,21 +1,30 @@
 import { useState, useEffect } from 'react'
 import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
-import type { Product, Location } from '../lib/types'
+import type { Product, Location, Company } from '../lib/types'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
 
 type Mode = 'serial_tracked' | 'quantity_only'
 
+const WARRANTY_OPTIONS = [
+  { value: '', label: 'None' },
+  { value: '3', label: '3 years' },
+  { value: '5', label: '5 years' },
+]
+
 export default function StockIn() {
   const { toast } = useToast()
   const [mode, setMode] = useState<Mode>('serial_tracked')
   const [products, setProducts] = useState<Product[]>([])
   const [warehouses, setWarehouses] = useState<Location[]>([])
+  const [companies, setCompanies] = useState<Company[]>([])
   const [productId, setProductId] = useState('')
   const [warehouseId, setWarehouseId] = useState('')
   const [serials, setSerials] = useState('')
   const [quantity, setQuantity] = useState('')
+  const [allocatedClientId, setAllocatedClientId] = useState('')
+  const [warrantyDuration, setWarrantyDuration] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -32,14 +41,13 @@ export default function StockIn() {
   }, [mode])
 
   useEffect(() => {
-    supabase
-      .from('mock_cl_locations')
-      .select('*')
-      .eq('type', 'warehouse')
-      .order('name')
-      .then(({ data }) => {
-        setWarehouses(data ?? [])
-      })
+    Promise.all([
+      supabase.from('mock_cl_locations').select('*').eq('type', 'warehouse').order('name'),
+      supabase.from('mock_cl_companies').select('*').order('name'),
+    ]).then(([locRes, compRes]) => {
+      if (locRes.data) setWarehouses(locRes.data as unknown as Location[])
+      if (compRes.data) setCompanies(compRes.data as unknown as Company[])
+    })
   }, [])
 
   function resetForm() {
@@ -47,6 +55,8 @@ export default function StockIn() {
     setWarehouseId('')
     setSerials('')
     setQuantity('')
+    setAllocatedClientId('')
+    setWarrantyDuration('')
   }
 
   async function handleSerialSubmit() {
@@ -67,6 +77,8 @@ export default function StockIn() {
         location_id: warehouseId,
         serial_number: sn,
         status: 'available' as const,
+        allocated_client_id: allocatedClientId || null,
+        warranty_duration_years: warrantyDuration ? Number(warrantyDuration) : null,
       }))
 
       const { data: insertedItems, error: itemErr } = await supabase
@@ -220,24 +232,53 @@ export default function StockIn() {
           </div>
 
           {mode === 'serial_tracked' ? (
-            <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-1">
-                Serial Numbers
-                <span className="text-neutral-400 font-normal ml-1">(one per line)</span>
-              </label>
-              <textarea
-                value={serials}
-                onChange={e => setSerials(e.target.value)}
-                rows={5}
-                placeholder={'H4ZD400200\nH4ZD400201\nH4ZD400202'}
-                className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-neutral-0 text-sm font-mono text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 resize-y"
-              />
-              {serials.trim() && (
-                <p className="text-[12px] text-neutral-500 mt-1">
-                  {serials.split('\n').filter(s => s.trim()).length} serial number(s)
-                </p>
-              )}
-            </div>
+            <>
+              {/* Allocate to client */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Allocate to Client <span className="text-neutral-400 font-normal">(optional)</span>
+                </label>
+                <SearchableSelect
+                  options={companies.map(c => ({ value: c.id, label: c.name }))}
+                  value={allocatedClientId}
+                  onChange={setAllocatedClientId}
+                  placeholder="Unallocated"
+                />
+              </div>
+
+              {/* Warranty duration */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Warranty Duration <span className="text-neutral-400 font-normal">(optional)</span>
+                </label>
+                <SearchableSelect
+                  options={WARRANTY_OPTIONS}
+                  value={warrantyDuration}
+                  onChange={setWarrantyDuration}
+                  placeholder="None"
+                />
+              </div>
+
+              {/* Serial numbers */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Serial Numbers
+                  <span className="text-neutral-400 font-normal ml-1">(one per line)</span>
+                </label>
+                <textarea
+                  value={serials}
+                  onChange={e => setSerials(e.target.value)}
+                  rows={5}
+                  placeholder={'H4ZD400200\nH4ZD400201\nH4ZD400202'}
+                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-neutral-0 text-sm font-mono text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 resize-y"
+                />
+                {serials.trim() && (
+                  <p className="text-[12px] text-neutral-500 mt-1">
+                    {serials.split('\n').filter(s => s.trim()).length} serial number(s)
+                  </p>
+                )}
+              </div>
+            </>
           ) : (
             <div>
               <label className="block text-sm font-medium text-neutral-700 mb-1">Quantity</label>

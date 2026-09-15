@@ -6,9 +6,10 @@ import PageHeader from '../components/PageHeader'
 import SearchableSelect from '../components/SearchableSelect'
 
 interface TrackedSummary {
-  productId: string
+  key: string
   productName: string
   sku: string
+  clientPool: string
   counts: Record<ItemStatus, number>
   total: number
 }
@@ -18,6 +19,7 @@ interface UntrackedRow {
   productName: string
   sku: string
   warehouseName: string
+  warehouseId: string
   quantity: number
 }
 
@@ -26,7 +28,7 @@ interface Warehouse {
   name: string
 }
 
-const ALL_STATUSES: ItemStatus[] = ['available', 'reserved', 'installed', 'in_transit', 'defect']
+const ALL_STATUSES: ItemStatus[] = ['available', 'scheduled', 'in_transit', 'installed', 'defect', 'in_repair']
 
 export default function Stock() {
   const [tracked, setTracked] = useState<TrackedSummary[]>([])
@@ -42,7 +44,7 @@ export default function Stock() {
       const [itemsRes, stockRes, locRes] = await Promise.all([
         supabase
           .from('inv_inventory_item')
-          .select('id, status, product:inv_product_registry(id, name, sku)'),
+          .select('id, status, allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id, name), product:inv_product_registry(id, name, sku)'),
         supabase
           .from('inv_warehouse_stock')
           .select('id, quantity, product:inv_product_registry(name, sku), location:mock_cl_locations(id, name)'),
@@ -54,24 +56,38 @@ export default function Stock() {
 
       if (itemsRes.data) {
         const grouped = new Map<string, TrackedSummary>()
+        const emptyCounts = (): Record<ItemStatus, number> => ({
+          available: 0, scheduled: 0, installed: 0, in_transit: 0, defect: 0, in_repair: 0,
+        })
         for (const item of itemsRes.data) {
           const p = item.product as any
           if (!p) continue
-          let entry = grouped.get(p.id)
+          const client = item.allocated_client as any
+          const clientName = client?.name ?? 'Unallocated'
+          const key = `${p.id}__${client?.id ?? 'none'}`
+          let entry = grouped.get(key)
           if (!entry) {
             entry = {
-              productId: p.id,
+              key,
               productName: p.name,
               sku: p.sku,
-              counts: { available: 0, reserved: 0, installed: 0, in_transit: 0, defect: 0 },
+              clientPool: clientName,
+              counts: emptyCounts(),
               total: 0,
             }
-            grouped.set(p.id, entry)
+            grouped.set(key, entry)
           }
           entry.counts[item.status as ItemStatus]++
           entry.total++
         }
-        setTracked(Array.from(grouped.values()))
+        const sorted = Array.from(grouped.values()).sort((a, b) => {
+          const nameCompare = a.productName.localeCompare(b.productName)
+          if (nameCompare !== 0) return nameCompare
+          if (a.clientPool === 'Unallocated') return 1
+          if (b.clientPool === 'Unallocated') return -1
+          return a.clientPool.localeCompare(b.clientPool)
+        })
+        setTracked(sorted)
       }
 
       if (stockRes.data) {
@@ -97,7 +113,7 @@ export default function Stock() {
   }, [])
 
   const filteredUntracked = warehouseFilter
-    ? untracked.filter((r: any) => r.warehouseId === warehouseFilter)
+    ? untracked.filter(r => r.warehouseId === warehouseFilter)
     : untracked
 
   if (loading) {
@@ -120,39 +136,45 @@ export default function Stock() {
         {tracked.length === 0 ? (
           <p className="text-[13px] text-neutral-500">No tracked items found.</p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {tracked.map(item => (
-              <div
-                key={item.productId}
-                className="bg-neutral-0 border border-neutral-200 rounded-xl p-4"
-              >
-                <div className="flex items-baseline justify-between mb-2">
-                  <span className="text-[13px] font-semibold text-neutral-800 truncate mr-2">
-                    {item.productName}
-                  </span>
-                  <span className="font-mono text-[11px] text-neutral-500 shrink-0">
-                    {item.sku}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {ALL_STATUSES.map(status => (
-                    item.counts[status] > 0 && (
-                      <span key={status} className="flex items-center gap-1">
-                        <span className="font-mono text-[12px] text-neutral-700 font-medium">
-                          {item.counts[status]}
-                        </span>
-                        <StatusBadge status={status} />
-                      </span>
-                    )
+          <div className="border border-neutral-200 rounded-xl overflow-hidden">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-neutral-100">
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Product</th>
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">SKU</th>
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Client Pool</th>
+                  {ALL_STATUSES.map(s => (
+                    <th key={s} className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-center">
+                      {s.replace(/_/g, ' ')}
+                    </th>
                   ))}
-                </div>
-
-                <div className="mt-2 pt-2 border-t border-neutral-100 text-[11px] text-neutral-500 uppercase tracking-wide">
-                  Total: <span className="font-mono font-medium text-neutral-700">{item.total}</span>
-                </div>
-              </div>
-            ))}
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tracked.map(row => (
+                  <tr key={row.key} className="border-t border-neutral-100 hover:bg-neutral-25 transition-colors duration-120">
+                    <td className="px-3 py-2 text-[12px] text-neutral-800 font-medium">{row.productName}</td>
+                    <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">{row.sku}</td>
+                    <td className="px-3 py-2 text-[12px] text-neutral-700">
+                      {row.clientPool === 'Unallocated' ? (
+                        <span className="text-neutral-400 italic">Unallocated</span>
+                      ) : row.clientPool}
+                    </td>
+                    {ALL_STATUSES.map(s => (
+                      <td key={s} className="px-3 py-2 font-mono text-[12px] text-center">
+                        {row.counts[s] > 0 ? (
+                          <span className="text-neutral-800 font-medium">{row.counts[s]}</span>
+                        ) : (
+                          <span className="text-neutral-300">0</span>
+                        )}
+                      </td>
+                    ))}
+                    <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-semibold">{row.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>
@@ -174,18 +196,10 @@ export default function Stock() {
           <table className="w-full text-left">
             <thead>
               <tr className="bg-neutral-100">
-                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">
-                  Product
-                </th>
-                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">
-                  SKU
-                </th>
-                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">
-                  Warehouse
-                </th>
-                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-right">
-                  Quantity
-                </th>
+                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Product</th>
+                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">SKU</th>
+                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em]">Warehouse</th>
+                <th className="px-3 py-2 text-[11px] font-medium text-neutral-600 uppercase tracking-[0.06em] text-right">Quantity</th>
               </tr>
             </thead>
             <tbody>
@@ -198,18 +212,10 @@ export default function Stock() {
               ) : (
                 filteredUntracked.map(row => (
                   <tr key={row.id} className="border-t border-neutral-100 hover:bg-neutral-25 transition-colors duration-120">
-                    <td className="px-3 py-2 text-[12px] text-neutral-800">
-                      {row.productName}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">
-                      {row.sku}
-                    </td>
-                    <td className="px-3 py-2 text-[12px] text-neutral-700">
-                      {row.warehouseName}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-medium">
-                      {row.quantity}
-                    </td>
+                    <td className="px-3 py-2 text-[12px] text-neutral-800">{row.productName}</td>
+                    <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">{row.sku}</td>
+                    <td className="px-3 py-2 text-[12px] text-neutral-700">{row.warehouseName}</td>
+                    <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-medium">{row.quantity}</td>
                   </tr>
                 ))
               )}

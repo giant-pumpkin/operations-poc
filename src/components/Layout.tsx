@@ -4,6 +4,8 @@ import {
   ScanBarcode,
   Warehouse,
   PackagePlus,
+  ArrowRightLeft,
+  Undo2,
   ArrowLeftRight,
 } from 'lucide-react'
 
@@ -12,6 +14,8 @@ const NAV_ITEMS = [
   { to: '/inventory', label: 'Inventory', icon: ScanBarcode },
   { to: '/stock', label: 'Stock', icon: Warehouse },
   { to: '/stock-in', label: 'Stock In', icon: PackagePlus },
+  { to: '/transfer', label: 'Transfer', icon: ArrowRightLeft },
+  { to: '/return', label: 'Return', icon: Undo2 },
   { to: '/movements', label: 'Movements', icon: ArrowLeftRight },
 ]
 

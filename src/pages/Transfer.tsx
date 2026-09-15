@@ -1,0 +1,407 @@
+import { useState, useEffect } from 'react'
+import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
+import type { InventoryItem, Product, Location, WarehouseStock } from '../lib/types'
+import PageHeader from '../components/PageHeader'
+import { useToast } from '../components/Toast'
+import SearchableSelect from '../components/SearchableSelect'
+import { StatusBadge } from '../components/StatusBadge'
+import { activateWarrantyIfNeeded } from '../lib/warranty'
+import { X } from 'lucide-react'
+
+type Mode = 'tracked' | 'untracked'
+
+export default function Transfer() {
+  const { toast } = useToast()
+  const [mode, setMode] = useState<Mode>('tracked')
+
+  // tracked state
+  const [allItems, setAllItems] = useState<InventoryItem[]>([])
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([])
+  const [addItemId, setAddItemId] = useState('')
+
+  // untracked state
+  const [qtyProducts, setQtyProducts] = useState<Product[]>([])
+  const [warehouseStock, setWarehouseStock] = useState<WarehouseStock[]>([])
+  const [selectedProductId, setSelectedProductId] = useState('')
+  const [sourceWarehouseId, setSourceWarehouseId] = useState('')
+  const [transferQty, setTransferQty] = useState('')
+
+  // shared
+  const [destinations, setDestinations] = useState<Location[]>([])
+  const [destinationId, setDestinationId] = useState('')
+  const [notes, setNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  useEffect(() => {
+    setSelectedItemIds([])
+    setAddItemId('')
+    setSelectedProductId('')
+    setSourceWarehouseId('')
+    setTransferQty('')
+    setDestinationId('')
+    setNotes('')
+    setShowConfirm(false)
+  }, [mode])
+
+  useEffect(() => {
+    if (selectedProductId) {
+      supabase
+        .from('inv_warehouse_stock')
+        .select('*, location:mock_cl_locations(id, name)')
+        .eq('product_id', selectedProductId)
+        .gt('quantity', 0)
+        .then(({ data }) => setWarehouseStock((data as any) ?? []))
+    } else {
+      setWarehouseStock([])
+      setSourceWarehouseId('')
+    }
+  }, [selectedProductId])
+
+  async function loadData() {
+    const [itemsRes, prodsRes, locsRes] = await Promise.all([
+      supabase
+        .from('inv_inventory_item')
+        .select('*, product:inv_product_registry(id,name,sku), location:mock_cl_locations(id,name,type)')
+        .order('serial_number'),
+      supabase.from('inv_product_registry').select('*').eq('tracking_type', 'quantity_only').eq('active', true).order('name'),
+      supabase.from('mock_cl_locations').select('*').in('type', ['warehouse', 'repair_center']).order('name'),
+    ])
+    if (itemsRes.data) setAllItems(itemsRes.data as unknown as InventoryItem[])
+    if (prodsRes.data) setQtyProducts(prodsRes.data)
+    if (locsRes.data) setDestinations(locsRes.data as unknown as Location[])
+  }
+
+  const selectedItems = allItems.filter(i => selectedItemIds.includes(i.id))
+  const availableToAdd = allItems.filter(i =>
+    !selectedItemIds.includes(i.id) && i.location_id != null
+  )
+
+  function addItem() {
+    if (!addItemId) return
+    setSelectedItemIds(prev => [...prev, addItemId])
+    setAddItemId('')
+  }
+
+  function removeItem(id: string) {
+    setSelectedItemIds(prev => prev.filter(x => x !== id))
+  }
+
+  const sourceStock = warehouseStock.find(s => (s.location as any)?.id === sourceWarehouseId)
+  const maxQty = sourceStock?.quantity ?? 0
+
+  function canSubmitTracked() {
+    if (selectedItems.length === 0 || !destinationId) return false
+    return selectedItems.every(i => i.location_id !== destinationId)
+  }
+
+  function canSubmitUntracked() {
+    return selectedProductId && sourceWarehouseId && destinationId &&
+      sourceWarehouseId !== destinationId &&
+      Number(transferQty) > 0 && Number(transferQty) <= maxQty
+  }
+
+  async function handleSubmit() {
+    setSubmitting(true)
+    try {
+      if (mode === 'tracked') {
+        const now = new Date().toISOString()
+        const dest = destinations.find(d => d.id === destinationId)!
+        const isRepairCenter = dest.type === 'repair_center'
+
+        for (const item of selectedItems) {
+          const fromRepair = (item.location as any)?.type === 'repair_center'
+          const newStatus = isRepairCenter ? 'in_repair'
+            : fromRepair ? 'available'
+            : item.status
+
+          const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
+            product_id: item.product_id,
+            inventory_item_id: item.id,
+            from_location: item.location_id,
+            to_location: destinationId,
+            performed_by: BOSS_PROFILE_ID,
+            movement_type: 'transfer',
+            quantity: 1,
+            movement_time: now,
+            notes: notes.trim() || null,
+          })
+          if (moveErr) throw moveErr
+
+          const { error: updateErr } = await supabase
+            .from('inv_inventory_item')
+            .update({ location_id: destinationId, status: newStatus, updated_at: now })
+            .eq('id', item.id)
+          if (updateErr) throw updateErr
+
+          if (newStatus === 'installed') {
+            await activateWarrantyIfNeeded(item.id)
+          }
+        }
+
+        toast('success', `Transferred ${selectedItems.length} item(s) to ${dest.name}`)
+      } else {
+        const qty = Number(transferQty)
+        const now = new Date().toISOString()
+
+        const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
+          product_id: selectedProductId,
+          inventory_item_id: null,
+          from_location: sourceWarehouseId,
+          to_location: destinationId,
+          performed_by: BOSS_PROFILE_ID,
+          movement_type: 'transfer',
+          quantity: qty,
+          movement_time: now,
+          notes: notes.trim() || null,
+        })
+        if (moveErr) throw moveErr
+
+        const { error: decErr } = await supabase
+          .from('inv_warehouse_stock')
+          .update({ quantity: sourceStock!.quantity - qty, updated_at: now })
+          .eq('id', sourceStock!.id)
+        if (decErr) throw decErr
+
+        const { data: existing } = await supabase
+          .from('inv_warehouse_stock')
+          .select('id, quantity')
+          .eq('product_id', selectedProductId)
+          .eq('location_id', destinationId)
+          .maybeSingle()
+
+        if (existing) {
+          const { error } = await supabase
+            .from('inv_warehouse_stock')
+            .update({ quantity: existing.quantity + qty, updated_at: now })
+            .eq('id', existing.id)
+          if (error) throw error
+        } else {
+          const { error } = await supabase
+            .from('inv_warehouse_stock')
+            .insert({ product_id: selectedProductId, location_id: destinationId, quantity: qty })
+          if (error) throw error
+        }
+
+        const product = qtyProducts.find(p => p.id === selectedProductId)
+        toast('success', `Transferred ${qty}× ${product?.name ?? 'items'}`)
+      }
+
+      setSelectedItemIds([])
+      setSelectedProductId('')
+      setSourceWarehouseId('')
+      setTransferQty('')
+      setDestinationId('')
+      setNotes('')
+      setShowConfirm(false)
+      loadData()
+    } catch (err: any) {
+      toast('error', err.message || 'Transfer failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const destOptions = destinations
+    .filter(d => {
+      if (mode === 'untracked') return d.id !== sourceWarehouseId
+      if (selectedItems.length === 1) return d.id !== selectedItems[0].location_id
+      return true
+    })
+    .map(d => ({
+      value: d.id,
+      label: d.name,
+      sublabel: d.type === 'repair_center' ? 'Repair Center' : 'Warehouse',
+    }))
+
+  return (
+    <div className="p-6 max-w-3xl">
+      <PageHeader title="Transfer" />
+
+      {/* Mode toggle */}
+      <div className="flex gap-1 mb-5 bg-neutral-100 rounded-lg p-0.5 w-fit">
+        {(['tracked', 'untracked'] as Mode[]).map(m => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={`px-4 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-120 ${
+              mode === m ? 'bg-neutral-0 text-neutral-800 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
+            }`}
+          >
+            {m === 'tracked' ? 'Serial Items' : 'Quantity Items'}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-neutral-0 border border-neutral-200 rounded-xl p-6 space-y-5">
+        {mode === 'tracked' ? (
+          <>
+            {/* Select items */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">Select Items</label>
+              <div className="flex items-center gap-2">
+                <SearchableSelect
+                  options={availableToAdd.map(i => ({
+                    value: i.id,
+                    label: i.serial_number,
+                    sublabel: `${(i.product as any)?.name} · ${(i.location as any)?.name ?? 'Unknown'}`,
+                  }))}
+                  value={addItemId}
+                  onChange={setAddItemId}
+                  placeholder="Search by serial number…"
+                  className="flex-1"
+                />
+                <button
+                  onClick={addItem}
+                  disabled={!addItemId}
+                  className="h-10 px-4 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 transition-colors duration-120"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {/* Selected items table */}
+            {selectedItems.length > 0 && (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-neutral-50 text-[11px] uppercase tracking-[0.06em] text-neutral-500">
+                    <th className="text-left px-3 py-2 font-medium">Serial</th>
+                    <th className="text-left px-3 py-2 font-medium">Product</th>
+                    <th className="text-left px-3 py-2 font-medium">Current Location</th>
+                    <th className="text-left px-3 py-2 font-medium">Status</th>
+                    <th className="w-10" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedItems.map(item => (
+                    <tr key={item.id} className="border-t border-neutral-100">
+                      <td className="px-3 py-2 font-mono text-[12px]">{item.serial_number}</td>
+                      <td className="px-3 py-2 text-[12px]">{(item.product as any)?.name}</td>
+                      <td className="px-3 py-2 text-[12px]">{(item.location as any)?.name ?? '—'}</td>
+                      <td className="px-3 py-2"><StatusBadge status={item.status} /></td>
+                      <td className="px-1 py-2">
+                        <button onClick={() => removeItem(item.id)} className="p-1 text-neutral-400 hover:text-danger-500">
+                          <X size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Product */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">Product</label>
+              <SearchableSelect
+                options={qtyProducts.map(p => ({ value: p.id, label: p.name, sublabel: p.sku }))}
+                value={selectedProductId}
+                onChange={v => { setSelectedProductId(v); setSourceWarehouseId(''); setTransferQty(''); }}
+                placeholder="Select product…"
+              />
+            </div>
+
+            {/* Source warehouse */}
+            {selectedProductId && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Source Warehouse</label>
+                <SearchableSelect
+                  options={warehouseStock.map(s => ({
+                    value: (s.location as any)?.id,
+                    label: (s.location as any)?.name,
+                    sublabel: `${s.quantity} in stock`,
+                  }))}
+                  value={sourceWarehouseId}
+                  onChange={v => { setSourceWarehouseId(v); setTransferQty(''); }}
+                  placeholder="Select source…"
+                />
+              </div>
+            )}
+
+            {/* Quantity */}
+            {sourceWarehouseId && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Quantity <span className="text-neutral-400 font-normal">(max {maxQty})</span>
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={maxQty}
+                  value={transferQty}
+                  onChange={e => setTransferQty(e.target.value)}
+                  className="w-32 h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Destination */}
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">Destination</label>
+          <SearchableSelect
+            options={destOptions}
+            value={destinationId}
+            onChange={setDestinationId}
+            placeholder="Select destination…"
+          />
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">Notes (optional)</label>
+          <input
+            type="text"
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Transfer reason or notes"
+            className="w-full h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+
+        {/* Confirm / Submit */}
+        {!showConfirm ? (
+          <button
+            onClick={() => setShowConfirm(true)}
+            disabled={mode === 'tracked' ? !canSubmitTracked() : !canSubmitUntracked()}
+            className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
+          >
+            Review Transfer
+          </button>
+        ) : (
+          <div className="border border-warning-200 bg-warning-50 rounded-lg p-4 space-y-3">
+            <p className="text-[13px] text-neutral-800 font-medium">
+              {mode === 'tracked'
+                ? `Transfer ${selectedItems.length} item(s) to ${destinations.find(d => d.id === destinationId)?.name}?`
+                : `Transfer ${transferQty}× ${qtyProducts.find(p => p.id === selectedProductId)?.name} to ${destinations.find(d => d.id === destinationId)?.name}?`
+              }
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="h-9 px-4 rounded-lg bg-neutral-900 text-neutral-0 text-[13px] font-medium hover:bg-neutral-800 disabled:opacity-40 transition-colors duration-120"
+              >
+                {submitting ? 'Transferring…' : 'Confirm Transfer'}
+              </button>
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="h-9 px-4 rounded-lg border border-neutral-200 bg-neutral-0 text-[13px] font-medium text-neutral-700 hover:bg-neutral-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
