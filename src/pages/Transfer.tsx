@@ -94,6 +94,14 @@ export default function Transfer() {
   const sourceStock = warehouseStock.find(s => (s.location as any)?.id === sourceWarehouseId)
   const maxQty = sourceStock?.quantity ?? 0
 
+  const sameLocationError = (() => {
+    if (!destinationId) return false
+    if (mode === 'tracked') {
+      return selectedItems.length > 0 && selectedItems.every(i => i.location_id === destinationId)
+    }
+    return sourceWarehouseId === destinationId
+  })()
+
   function canSubmitTracked() {
     if (selectedItems.length === 0 || !destinationId) return false
     return selectedItems.every(i => i.location_id !== destinationId)
@@ -369,13 +377,21 @@ export default function Transfer() {
 
         {/* Confirm / Submit */}
         {!showConfirm ? (
-          <button
-            onClick={() => setShowConfirm(true)}
-            disabled={mode === 'tracked' ? !canSubmitTracked() : !canSubmitUntracked()}
-            className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
-          >
-            Review Transfer
-          </button>
+          <div className="relative w-fit group">
+            <button
+              onClick={() => setShowConfirm(true)}
+              disabled={mode === 'tracked' ? !canSubmitTracked() : !canSubmitUntracked()}
+              className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
+            >
+              Review Transfer
+            </button>
+            {sameLocationError && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg bg-[#2b2b2e] text-neutral-0 text-[12px] font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
+                Cannot transfer to the same location
+                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] border-t-[#2b2b2e]" />
+              </div>
+            )}
+          </div>
         ) : (
           <div className="border border-warning-200 bg-warning-50 rounded-lg p-4 space-y-3">
             <p className="text-[13px] text-neutral-800 font-medium">
