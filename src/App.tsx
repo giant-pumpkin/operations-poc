@@ -6,7 +6,6 @@ import Inventory from './pages/Inventory'
 import Stock from './pages/Stock'
 import StockIn from './pages/StockIn'
 import Movements from './pages/Movements'
-import KitAssembly from './pages/KitAssembly'
 
 export default function App() {
   return (
@@ -19,7 +18,6 @@ export default function App() {
             <Route path="/stock" element={<Stock />} />
             <Route path="/stock-in" element={<StockIn />} />
             <Route path="/movements" element={<Movements />} />
-            <Route path="/kit-assembly" element={<KitAssembly />} />
             <Route path="*" element={<Navigate to="/products" replace />} />
           </Route>
         </Routes>

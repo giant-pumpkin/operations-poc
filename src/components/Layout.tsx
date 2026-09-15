@@ -5,7 +5,6 @@ import {
   Warehouse,
   PackagePlus,
   ArrowLeftRight,
-  Wrench,
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -14,7 +13,6 @@ const NAV_ITEMS = [
   { to: '/stock', label: 'Stock', icon: Warehouse },
   { to: '/stock-in', label: 'Stock In', icon: PackagePlus },
   { to: '/movements', label: 'Movements', icon: ArrowLeftRight },
-  { to: '/kit-assembly', label: 'Kit Assembly', icon: Wrench },
 ]
 
 function AsteriskLogo({ className }: { className?: string }) {

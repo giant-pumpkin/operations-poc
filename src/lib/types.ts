@@ -77,22 +77,6 @@ export interface StockMovement {
   performer?: Profile
 }
 
-export interface KitTemplate {
-  id: string
-  product_registry_id: string
-  component_product_id: string
-  default_quantity: number
-  component_product?: Product
-}
-
-export interface KitItemComponent {
-  id: string
-  inventory_item_id: string
-  component_product_id: string
-  quantity: number
-  component_product?: Product
-}
-
 export type ItemStatus = InventoryItem['status']
 export type MovementType = StockMovement['movement_type']
 export type TrackingType = Product['tracking_type']

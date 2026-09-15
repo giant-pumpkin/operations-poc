@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import type { Product, InventoryItem, WarehouseStock, StockMovement, KitTemplate } from '../lib/types'
+import type { Product, InventoryItem, WarehouseStock, StockMovement } from '../lib/types'
 import { TrackingBadge, StatusBadge, MovementBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
@@ -9,7 +9,7 @@ import SearchableSelect from '../components/SearchableSelect'
 
 const CATEGORIES = [
   'Adapters', 'Cable', 'Ceiling Mount', 'Data storage', 'Demo', 'Display',
-  'Frames', 'Kit', 'LED module', 'Mounts', 'Office supplies', 'PC',
+  'Frames', 'LED module', 'Mounts', 'Office supplies', 'PC',
   'Play box', 'Printer', 'Routers', 'Scent Diffuser', 'Scent Diffuser Tank',
   'Services', 'SIM card', 'Smart camera', 'Software', 'Streaming Device',
   'Switch', 'TV stand - Vesa', 'USB Cameras', 'USB Tracker',
@@ -60,7 +60,6 @@ export default function Products() {
   const [detailItems, setDetailItems] = useState<InventoryItem[]>([])
   const [detailStock, setDetailStock] = useState<WarehouseStock[]>([])
   const [detailMovements, setDetailMovements] = useState<StockMovement[]>([])
-  const [detailKit, setDetailKit] = useState<KitTemplate[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
 
   const fetchProducts = useCallback(async () => {
@@ -117,7 +116,6 @@ export default function Products() {
     setDetailItems([])
     setDetailStock([])
     setDetailMovements([])
-    setDetailKit([])
 
     if (product.tracking_type === 'serial_tracked') {
       const { data } = await supabase
@@ -132,14 +130,6 @@ export default function Products() {
         .select('*, product:inv_product_registry(name, sku), location:mock_cl_locations(name)')
         .eq('product_id', product.id)
       setDetailStock((data as any) || [])
-    }
-
-    if (product.category === 'Kit') {
-      const { data } = await supabase
-        .from('inv_kit_template')
-        .select('*, component_product:inv_product_registry!inv_kit_template_component_product_id_fkey(name, sku)')
-        .eq('product_registry_id', product.id)
-      setDetailKit((data as any) || [])
     }
 
     const { data: movements } = await supabase
@@ -359,33 +349,6 @@ export default function Products() {
             <div className="px-5 py-8 text-center text-[13px] text-neutral-400">Loading details...</div>
           ) : (
             <div className="p-5 space-y-6">
-              {/* Kit Template */}
-              {selectedProduct.category === 'Kit' && detailKit.length > 0 && (
-                <div>
-                  <h3 className="text-[13px] font-semibold text-neutral-700 mb-2">Kit Components (Template)</h3>
-                  <div className="border border-neutral-200 rounded-lg overflow-hidden">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-neutral-100">
-                          <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Component</th>
-                          <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">SKU</th>
-                          <th className="text-right px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Default Qty</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detailKit.map(k => (
-                          <tr key={k.id} className="border-t border-neutral-200">
-                            <td className="px-3 py-2 text-[12px] text-neutral-800">{(k as any).component_product?.name}</td>
-                            <td className="px-3 py-2 text-[12px] font-mono text-neutral-600">{(k as any).component_product?.sku}</td>
-                            <td className="px-3 py-2 text-[12px] font-mono text-neutral-700 text-right">{k.default_quantity}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
               {/* Serial-tracked items */}
               {selectedProduct.tracking_type === 'serial_tracked' && (
                 <div>
@@ -581,15 +544,6 @@ export default function Products() {
                     className="rounded accent-brand-500"
                   />
                   Media Player
-                </label>
-                <label className="flex items-center gap-2 text-[13px] text-neutral-700">
-                  <input
-                    type="checkbox"
-                    checked={formData.active ?? true}
-                    onChange={e => setFormData(f => ({ ...f, active: e.target.checked }))}
-                    className="rounded accent-brand-500"
-                  />
-                  Active
                 </label>
               </div>
             </div>
