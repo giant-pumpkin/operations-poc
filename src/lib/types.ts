@@ -42,7 +42,7 @@ export interface InventoryItem {
   product_id: string
   location_id: string | null
   serial_number: string
-  status: 'available' | 'scheduled' | 'installed' | 'in_transit' | 'defect' | 'in_repair'
+  status: 'available' | 'scheduled' | 'installed' | 'in_transit' | 'defect' | 'in_repair' | 'written_off'
   allocated_client_id: string | null
   warranty_duration_years: number | null
   warranty_start_date: string | null

@@ -20,6 +20,7 @@ const ALL_STATUSES: { value: ItemStatus; label: string }[] = [
   { value: 'installed', label: 'Installed' },
   { value: 'defect', label: 'Defect' },
   { value: 'in_repair', label: 'In Repair' },
+  { value: 'written_off', label: 'Written Off' },
 ]
 
 export default function Adjustment() {
@@ -124,7 +125,7 @@ export default function Adjustment() {
 
         const { error: updateErr } = await supabase
           .from('inv_inventory_item')
-          .update({ status: 'defect', location_id: null, updated_at: now })
+          .update({ status: 'written_off', location_id: null, updated_at: now })
           .eq('id', selectedItem.id)
         if (updateErr) throw updateErr
 

@@ -44,7 +44,8 @@ export default function Stock() {
       const [itemsRes, stockRes, locRes] = await Promise.all([
         supabase
           .from('inv_inventory_item')
-          .select('id, status, allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id, name), product:inv_product_registry(id, name, sku)'),
+          .select('id, status, allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id, name), product:inv_product_registry(id, name, sku)')
+          .neq('status', 'written_off'),
         supabase
           .from('inv_warehouse_stock')
           .select('id, quantity, product:inv_product_registry(name, sku), location:mock_cl_locations(id, name)'),
@@ -57,7 +58,7 @@ export default function Stock() {
       if (itemsRes.data) {
         const grouped = new Map<string, TrackedSummary>()
         const emptyCounts = (): Record<ItemStatus, number> => ({
-          available: 0, scheduled: 0, installed: 0, in_transit: 0, defect: 0, in_repair: 0,
+          available: 0, scheduled: 0, installed: 0, in_transit: 0, defect: 0, in_repair: 0, written_off: 0,
         })
         for (const item of itemsRes.data) {
           const p = item.product as any

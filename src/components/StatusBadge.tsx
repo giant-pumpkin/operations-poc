@@ -7,6 +7,7 @@ const STATUS_STYLES: Record<ItemStatus, string> = {
   in_transit: 'bg-info-50 text-info-700',
   defect: 'bg-danger-50 text-danger-700',
   in_repair: 'bg-[#F3E8FF] text-[#7C3AED]',
+  written_off: 'bg-neutral-100 text-neutral-500',
 }
 
 const MOVEMENT_STYLES: Record<MovementType, string> = {
