@@ -23,7 +23,7 @@ interface MovementRow {
   performer: { full_name: string } | null
 }
 
-const MOVEMENT_TYPES: MovementType[] = ['stock_in', 'stock_out', 'transfer', 'adjustment']
+const MOVEMENT_TYPES: MovementType[] = ['stock_in', 'stock_out', 'transfer', 'return', 'adjustment']
 
 function formatDateTime(iso: string): string {
   const d = new Date(iso)
@@ -178,8 +178,16 @@ export default function Movements() {
                     <td className="px-3 py-2 text-[12px] text-neutral-700">{m.product?.name ?? '—'}</td>
                     <td className="px-3 py-2 text-[12px] text-neutral-600 font-mono">{m.inventory_item?.serial_number ?? '—'}</td>
                     <td className="px-3 py-2 text-[12px] text-neutral-700 text-right font-mono">{m.quantity}</td>
-                    <td className="px-3 py-2 text-[12px] text-neutral-600">{m.from_loc?.name ?? '—'}</td>
-                    <td className="px-3 py-2 text-[12px] text-neutral-600">{m.to_loc?.name ?? '—'}</td>
+                    {!m.from_loc && !m.to_loc ? (
+                      <>
+                        <td colSpan={2} className="px-3 py-2 text-[12px] text-neutral-400 italic">No location change</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-3 py-2 text-[12px] text-neutral-600">{m.from_loc?.name ?? '—'}</td>
+                        <td className="px-3 py-2 text-[12px] text-neutral-600">{m.to_loc?.name ?? '—'}</td>
+                      </>
+                    )}
                     <td className="px-3 py-2 text-[12px] text-neutral-600">{m.performer?.full_name ?? '—'}</td>
                     <td className="px-3 py-2 text-[12px] text-neutral-500 max-w-48 truncate">{m.notes ?? ''}</td>
                   </tr>

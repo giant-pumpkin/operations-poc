@@ -84,6 +84,7 @@ export default function Adjustment() {
       supabase
         .from('inv_inventory_item')
         .select('*, product:inv_product_registry(id,name,sku), location:mock_cl_locations(id,name)')
+        .neq('status', 'written_off')
         .order('serial_number'),
       supabase.from('inv_product_registry').select('*').eq('tracking_type', 'quantity_only').eq('active', true).order('name'),
       supabase.from('mock_cl_locations').select('*').eq('type', 'warehouse').order('name'),
@@ -135,8 +136,8 @@ export default function Adjustment() {
         const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
           product_id: selectedItem.product_id,
           inventory_item_id: selectedItem.id,
-          from_location: selectedItem.location_id,
-          to_location: selectedItem.location_id,
+          from_location: null,
+          to_location: null,
           performed_by: BOSS_PROFILE_ID,
           movement_type: 'adjustment',
           quantity: 1,

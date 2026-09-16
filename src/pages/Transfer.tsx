@@ -67,6 +67,7 @@ export default function Transfer() {
       supabase
         .from('inv_inventory_item')
         .select('*, product:inv_product_registry(id,name,sku), location:mock_cl_locations(id,name,type)')
+        .neq('status', 'written_off')
         .order('serial_number'),
       supabase.from('inv_product_registry').select('*').eq('tracking_type', 'quantity_only').eq('active', true).order('name'),
       supabase.from('mock_cl_locations').select('*').in('type', ['warehouse', 'repair_center']).order('name'),

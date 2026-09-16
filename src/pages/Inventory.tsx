@@ -114,7 +114,11 @@ export default function Inventory() {
     return true
   })
 
+  const selectableFiltered = filtered.filter(i => i.status !== 'written_off')
+
   function toggleCheck(id: string) {
+    const item = items.find(i => i.id === id)
+    if (item?.status === 'written_off') return
     setCheckedIds(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -124,8 +128,8 @@ export default function Inventory() {
   }
 
   function toggleAll() {
-    if (checkedIds.size === filtered.length) setCheckedIds(new Set())
-    else setCheckedIds(new Set(filtered.map(i => i.id)))
+    if (checkedIds.size === selectableFiltered.length) setCheckedIds(new Set())
+    else setCheckedIds(new Set(selectableFiltered.map(i => i.id)))
   }
 
   async function handleReallocate() {
@@ -150,8 +154,8 @@ export default function Inventory() {
         const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
           product_id: item.product_id,
           inventory_item_id: id,
-          from_location: item.location_id,
-          to_location: item.location_id,
+          from_location: null,
+          to_location: null,
           performed_by: BOSS_PROFILE_ID,
           movement_type: 'adjustment',
           quantity: 1,
@@ -191,8 +195,8 @@ export default function Inventory() {
         const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
           product_id: item.product_id,
           inventory_item_id: id,
-          from_location: item.location_id,
-          to_location: item.location_id,
+          from_location: null,
+          to_location: null,
           performed_by: BOSS_PROFILE_ID,
           movement_type: 'adjustment',
           quantity: 1,
@@ -240,8 +244,8 @@ export default function Inventory() {
       const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
         product_id: selectedItem.product_id,
         inventory_item_id: selectedItem.id,
-        from_location: selectedItem.location_id,
-        to_location: selectedItem.location_id,
+        from_location: null,
+        to_location: null,
         performed_by: BOSS_PROFILE_ID,
         movement_type: 'adjustment',
         quantity: 1,
@@ -328,8 +332,8 @@ export default function Inventory() {
       const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
         product_id: selectedItem.product_id,
         inventory_item_id: selectedItem.id,
-        from_location: selectedItem.location_id,
-        to_location: selectedItem.location_id,
+        from_location: null,
+        to_location: null,
         performed_by: BOSS_PROFILE_ID,
         movement_type: 'adjustment',
         quantity: 1,
@@ -501,7 +505,7 @@ export default function Inventory() {
                   <th className="w-10 px-3 py-2">
                     <input
                       type="checkbox"
-                      checked={filtered.length > 0 && checkedIds.size === filtered.length}
+                      checked={selectableFiltered.length > 0 && checkedIds.size === selectableFiltered.length}
                       onChange={toggleAll}
                       className="rounded accent-brand-500"
                     />
@@ -544,7 +548,8 @@ export default function Inventory() {
                             type="checkbox"
                             checked={checkedIds.has(item.id)}
                             onChange={() => toggleCheck(item.id)}
-                            className="rounded accent-brand-500"
+                            disabled={item.status === 'written_off'}
+                            className="rounded accent-brand-500 disabled:opacity-30"
                           />
                         </td>
                         <td className="px-3 py-2 text-[12px] font-mono text-neutral-800">{item.serial_number}</td>
@@ -768,11 +773,15 @@ export default function Inventory() {
                                 {formatDate(new Date(m.movement_time))}
                               </span>
                             </div>
-                            <div className="flex items-center gap-1 text-neutral-600">
-                              <span>{from?.name ?? '—'}</span>
-                              <ArrowRight size={12} className="text-neutral-400" />
-                              <span>{to?.name ?? '—'}</span>
-                            </div>
+                            {!from && !to ? (
+                              <div className="text-neutral-400 italic">No location change</div>
+                            ) : (
+                              <div className="flex items-center gap-1 text-neutral-600">
+                                <span>{from?.name ?? '—'}</span>
+                                <ArrowRight size={12} className="text-neutral-400" />
+                                <span>{to?.name ?? '—'}</span>
+                              </div>
+                            )}
                             {performer && (
                               <div className="text-neutral-500 mt-0.5">by {performer.full_name}</div>
                             )}

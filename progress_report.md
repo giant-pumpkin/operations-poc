@@ -143,3 +143,72 @@
 c16008f Replace same-location error text with hover tooltip on Transfer page
 78a6356 Implement Section 2: deployment features
 ```
+
+---
+
+## Progress Report — Session 3 (2026-09-16)
+
+### Designation Field (Item 8 from next_steps.md)
+
+New column `designation` on `inv_inventory_item` — values: `deployment` (default), `spare`, `maintenance`. Allows segregating inventory by purpose (new installs vs spare replacements vs maintenance stock).
+
+**Types + Badge (8a)**
+- `Designation` type exported from `types.ts`
+- `DesignationBadge` component: blue (deployment), amber (spare), purple (maintenance)
+
+**Inventory page (8b)**
+- Designation column added to the table
+- Designation filter dropdown in the filter bar
+- Inline-editable designation in the detail panel — creates adjustment movement with note "Designation changed from X to Y"
+- Bulk designation change via action bar: select items → "Change Designation" → pick new designation → creates adjustment movements per item
+
+**Stock view (8c)**
+- Accordion child rows now show client × designation combos
+- Format: "KFC Thailand · Deployment", "KFC Thailand · Spare"
+- Zero-count combos excluded (filtered by `written_off` as before)
+
+**Stock-in page (8d)**
+- Designation dropdown added (defaults to Deployment)
+- Sets `designation` on newly created items
+
+**Return + Transfer (8e/8f)**
+- No changes — designation is preserved through returns and transfers
+
+### Commits (session 3)
+```
+1886ff4 Thread designation field through inventory, stock, and stock-in pages
+```
+
+### Bug Fixes (from next_steps.md)
+
+**Fix 1: Metadata adjustments no longer set locations**
+- Adjustment movements for designation change, status change, and client reallocation now set `from_location` and `to_location` to `null`
+- Affected: inline designation edit, bulk designation change, inline client edit, bulk reallocation (Inventory page), status change (Adjustment page)
+- Not affected: write-offs (correctly use `from_location`), quantity adjustments (correctly use warehouse location)
+- Retroactively fixed 3 existing movement records in DB
+
+**Fix 2: Written-off items excluded from operational pages**
+- Adjustment page: item query filters out `written_off`
+- Transfer page: item query filters out `written_off`
+- Return page: already safe (only queries `installed` items)
+- Inventory page: checkboxes disabled on written-off rows, select-all and toggle skip them
+
+**Movement history display**
+- Movements page: metadata adjustments show "No location change" spanning From/To columns
+- Inventory detail panel: metadata adjustments show "No location change" instead of "— → —"
+- Movements page: added `return` to movement type filter dropdown
+
+### Commits (session 3)
+```
+1886ff4 Thread designation field through inventory, stock, and stock-in pages
+```
+
+### What's Left
+
+- Reporting / dashboards
+- Product image upload
+- Bulk import
+- User auth + role-based access
+- DE1 (installation pipeline) → needs Jobs + Contracts
+- Stock-out to client site → needs Jobs
+- **Pending data fix:** `UPDATE inv_inventory_item SET status = 'written_off' WHERE status = 'defect' AND location_id IS NULL;`
