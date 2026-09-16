@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { ItemStatus } from '../lib/types'
+import type { ItemStatus, Designation } from '../lib/types'
 import { ChevronRight } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 
@@ -13,6 +13,7 @@ interface TrackedItem {
   sku: string
   clientName: string
   clientId: string | null
+  designation: Designation
 }
 
 interface UntrackedRow {
@@ -32,7 +33,7 @@ interface Warehouse {
 type StatusCounts = Record<ItemStatus, number>
 
 interface PoolRow {
-  clientPool: string
+  label: string
   counts: StatusCounts
   total: number
 }
@@ -84,11 +85,9 @@ function ExpandableRows({ pools, expanded }: { pools: PoolRow[]; expanded: boole
       }}
     >
       {pools.map(pool => (
-        <tr key={pool.clientPool} className="bg-neutral-0 border-t border-neutral-100">
+        <tr key={pool.label} className="bg-neutral-0 border-t border-neutral-100">
           <td className="px-3 py-1.5 text-[12px] text-neutral-800 pl-10">
-            {pool.clientPool === 'Unallocated' ? (
-              <span className="text-neutral-400 italic">Unallocated</span>
-            ) : pool.clientPool}
+            {pool.label}
           </td>
           <td className="px-3 py-1.5" />
           {DISPLAY_STATUSES.map(s => (
@@ -153,7 +152,7 @@ export default function Stock() {
       const [itemsRes, stockRes, locRes] = await Promise.all([
         supabase
           .from('inv_inventory_item')
-          .select('id, status, location_id, allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id, name), product:inv_product_registry(id, name, sku)')
+          .select('id, status, location_id, designation, allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id, name), product:inv_product_registry(id, name, sku)')
           .neq('status', 'written_off'),
         supabase
           .from('inv_warehouse_stock')
@@ -175,6 +174,7 @@ export default function Stock() {
             sku: item.product?.sku ?? '—',
             clientName: item.allocated_client?.name ?? 'Unallocated',
             clientId: item.allocated_client?.id ?? null,
+            designation: item.designation ?? 'deployment',
           }))
         )
       }
@@ -230,21 +230,19 @@ export default function Stock() {
       const groupItems = items.filter(i => i.productId === group.productId)
 
       for (const item of groupItems) {
-        const poolKey = item.clientId ?? 'none'
+        const poolKey = `${item.clientId ?? 'none'}__${item.designation}`
+        const designationLabel = item.designation.replace(/\b\w/g, c => c.toUpperCase())
+        const label = `${item.clientName} · ${designationLabel}`
         let pool = poolMap.get(poolKey)
         if (!pool) {
-          pool = { clientPool: item.clientName, counts: emptyCounts(), total: 0 }
+          pool = { label, counts: emptyCounts(), total: 0 }
           poolMap.set(poolKey, pool)
         }
         pool.counts[item.status]++
         pool.total++
       }
 
-      group.pools = Array.from(poolMap.values()).sort((a, b) => {
-        if (a.clientPool === 'Unallocated') return 1
-        if (b.clientPool === 'Unallocated') return -1
-        return a.clientPool.localeCompare(b.clientPool)
-      })
+      group.pools = Array.from(poolMap.values()).sort((a, b) => a.label.localeCompare(b.label))
     }
 
     return Array.from(products.values()).sort((a, b) =>

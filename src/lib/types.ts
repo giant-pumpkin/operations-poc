@@ -45,6 +45,7 @@ export interface InventoryItem {
   status: 'available' | 'scheduled' | 'installed' | 'in_transit' | 'defect' | 'in_repair' | 'written_off'
   allocated_client_id: string | null
   warranty_duration_years: number | null
+  designation: 'deployment' | 'spare' | 'maintenance'
   warranty_start_date: string | null
   warranty_end_date: string | null
   created_at: string
@@ -85,3 +86,4 @@ export interface StockMovement {
 export type ItemStatus = InventoryItem['status']
 export type MovementType = StockMovement['movement_type']
 export type TrackingType = Product['tracking_type']
+export type Designation = InventoryItem['designation']

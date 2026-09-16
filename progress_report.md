@@ -65,9 +65,81 @@
 
 ## Not Yet Built
 
-- Transfer workflow (move items between locations)
-- Stock adjustment workflow
 - Reporting / dashboards
 - Product image upload
 - Bulk import
 - User auth + role-based access
+
+---
+
+## Progress Report — Session 2 (2026-09-15)
+
+### New Pages
+
+| Page | Route | Status | Notes |
+|------|-------|--------|-------|
+| Transfer | `/transfer` | Working | Serial (multi-select) and quantity modes, confirmation step, same-location tooltip, auto-status on repair center |
+| Return | `/return` | Working | For installed items, reasons: defect/de_installation/swap/end_of_contract, auto-status based on reason |
+| Adjustment | `/adjustment` | Working | Tracked: Write Off + Status Change. Untracked: Quantity Correction. All create audit movements |
+
+### Major Enhancements
+
+**Inventory page**
+- Inline editing for Allocated Client (creates adjustment movement on save) and Warranty Duration
+- Bulk reallocation via checkboxes + action bar
+- Movement history in detail panel uses dd-MMM-yyyy date format
+- Warranty status display: Not activated / Active / Expired / No warranty
+
+**Stock page — full redesign**
+- Warehouse tabs (dynamic from DB) replace dropdown — scope both sections to selected location
+- "All Items" tab shows aggregate across all locations
+- Accordion rows: product-level summary → expand for client pool breakdown (tracked) or warehouse breakdown (quantity)
+- Dark table headers matching sidebar theme
+- Fixed column layout prevents shift on accordion expand
+
+**Stock In page**
+- "Allocate to Client" optional dropdown
+- "Warranty Duration" optional dropdown (None / 3yr / 5yr)
+- Sets `allocated_client_id` and `warranty_duration_years` on insert
+
+**Stock overview (Pool Allocation)**
+- Serial-tracked items grouped by product × client pool
+- Shows all 6 status columns + total
+
+### New Status: `written_off`
+- Added to DB constraint and TypeScript types
+- Write-off sets status to `written_off` (not `defect`), clears location
+- Stock view excludes `written_off` items — they stay in DB for audit trail
+- Grey neutral badge style
+
+### Statuses
+`available` | `scheduled` | `installed` | `in_transit` | `defect` | `in_repair` | `written_off`
+
+### UX Polish
+- Disabled button errors use dark hover tooltips (`#2b2b2e`), not plain text
+- dd-MMM-yyyy date format throughout (Created column, movement history)
+- Quantity inputs strip non-numeric characters
+- Transfer page: "Quantity exceeds maximum" tooltip, "Cannot transfer to same location" tooltip
+- Adjustment quantity section: balanced 3-column grid (current / new / difference)
+- Warranty auto-activation on first `installed` status (via `activateWarrantyIfNeeded`)
+
+### DB Changes
+- `inv_inventory_item.status` constraint updated to include `written_off`
+- `inv_inventory_item.allocated_client_id` — nullable FK to `mock_cl_companies`
+- `inv_inventory_item.warranty_duration_years`, `warranty_start_date`, `warranty_end_date` columns
+- Movement type `return` added
+- **Pending data fix:** Two items written off before `written_off` status existed are still `defect` with `location_id IS NULL` — run: `UPDATE inv_inventory_item SET status = 'written_off' WHERE status = 'defect' AND location_id IS NULL;`
+
+### Commits (session 2)
+```
+1e9dc78 Polish stock overview: dark headers, accordion for quantity items, fix column shift
+780fa2b Rename All Warehouses tab to All Items for clarity
+48d97b7 Add accordion rows to tracked stock table grouped by product
+0c7c661 Replace warehouse dropdown with tabs that filter both stock sections
+624947a Redesign quantity adjustment section as balanced 3-column grid
+4ddc90d Add written_off status and exclude from stock overview
+336a00c Add Adjustment page with write-off and status change for tracked items
+9422eea Add inline editing for client and warranty in inventory detail panel
+c16008f Replace same-location error text with hover tooltip on Transfer page
+78a6356 Implement Section 2: deployment features
+```

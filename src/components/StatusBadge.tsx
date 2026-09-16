@@ -1,4 +1,4 @@
-import type { ItemStatus, MovementType, TrackingType } from '../lib/types'
+import type { ItemStatus, MovementType, TrackingType, Designation } from '../lib/types'
 
 const STATUS_STYLES: Record<ItemStatus, string> = {
   available: 'bg-success-50 text-success-700',
@@ -48,6 +48,20 @@ export function TrackingBadge({ type }: { type: TrackingType }) {
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${TRACKING_STYLES[type]}`}>
       {type === 'serial_tracked' ? 'Serial' : 'Qty Only'}
+    </span>
+  )
+}
+
+const DESIGNATION_STYLES: Record<Designation, string> = {
+  deployment: 'bg-info-50 text-info-700',
+  spare: 'bg-warning-50 text-warning-700',
+  maintenance: 'bg-[#F3E8FF] text-[#7C3AED]',
+}
+
+export function DesignationBadge({ designation }: { designation: Designation }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${DESIGNATION_STYLES[designation]}`}>
+      {formatLabel(designation)}
     </span>
   )
 }

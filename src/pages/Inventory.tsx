@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
-import type { InventoryItem, Product, Location, Company, StockMovement } from '../lib/types'
-import { StatusBadge, MovementBadge } from '../components/StatusBadge'
+import type { InventoryItem, Product, Location, Company, StockMovement, Designation } from '../lib/types'
+import { StatusBadge, MovementBadge, DesignationBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import { Search, X, ArrowRight, RefreshCw, Pencil, Check } from 'lucide-react'
@@ -10,6 +10,7 @@ import SearchableSelect from '../components/SearchableSelect'
 type ItemStatus = InventoryItem['status']
 
 const ALL_STATUSES: ItemStatus[] = ['available', 'scheduled', 'in_transit', 'installed', 'defect', 'in_repair']
+const ALL_DESIGNATIONS: Designation[] = ['deployment', 'spare', 'maintenance']
 
 function formatDate(d: Date): string {
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -36,6 +37,7 @@ export default function Inventory() {
   const [statusFilter, setStatusFilter] = useState('')
   const [productFilter, setProductFilter] = useState('')
   const [locationFilter, setLocationFilter] = useState('')
+  const [designationFilter, setDesignationFilter] = useState('')
 
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
   const [movements, setMovements] = useState<StockMovement[]>([])
@@ -45,12 +47,17 @@ export default function Inventory() {
   const [showReallocate, setShowReallocate] = useState(false)
   const [reallocateTarget, setReallocateTarget] = useState('')
   const [reallocating, setReallocating] = useState(false)
+  const [showBulkDesignation, setShowBulkDesignation] = useState(false)
+  const [bulkDesignationTarget, setBulkDesignationTarget] = useState('')
+  const [bulkDesignating, setBulkDesignating] = useState(false)
 
   // Inline editing
   const [editingClient, setEditingClient] = useState(false)
   const [editClientValue, setEditClientValue] = useState('')
   const [editingWarranty, setEditingWarranty] = useState(false)
   const [editWarrantyValue, setEditWarrantyValue] = useState('')
+  const [editingDesignation, setEditingDesignation] = useState(false)
+  const [editDesignationValue, setEditDesignationValue] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -92,6 +99,7 @@ export default function Inventory() {
     setSelectedItem(item)
     setEditingClient(false)
     setEditingWarranty(false)
+    setEditingDesignation(false)
     fetchMovements(item.id)
   }
 
@@ -102,6 +110,7 @@ export default function Inventory() {
     if (statusFilter && item.status !== statusFilter) return false
     if (productFilter && prod?.id !== productFilter) return false
     if (locationFilter && loc?.id !== locationFilter) return false
+    if (designationFilter && item.designation !== designationFilter) return false
     return true
   })
 
@@ -161,6 +170,48 @@ export default function Inventory() {
       toast('error', err.message || 'Reallocation failed')
     } finally {
       setReallocating(false)
+    }
+  }
+
+  async function handleBulkDesignation() {
+    if (checkedIds.size === 0 || !bulkDesignationTarget) return
+    setBulkDesignating(true)
+    try {
+      const now = new Date().toISOString()
+      for (const id of checkedIds) {
+        const item = items.find(i => i.id === id)
+        if (!item || item.designation === bulkDesignationTarget) continue
+
+        const { error: updateErr } = await supabase
+          .from('inv_inventory_item')
+          .update({ designation: bulkDesignationTarget, updated_at: now })
+          .eq('id', id)
+        if (updateErr) throw updateErr
+
+        const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
+          product_id: item.product_id,
+          inventory_item_id: id,
+          from_location: item.location_id,
+          to_location: item.location_id,
+          performed_by: BOSS_PROFILE_ID,
+          movement_type: 'adjustment',
+          quantity: 1,
+          movement_time: now,
+          notes: `Designation changed from ${item.designation} to ${bulkDesignationTarget}`,
+        })
+        if (moveErr) throw moveErr
+      }
+
+      const label = bulkDesignationTarget.replace(/\b\w/g, c => c.toUpperCase())
+      toast('success', `Changed designation of ${checkedIds.size} item(s) to ${label}`)
+      setCheckedIds(new Set())
+      setShowBulkDesignation(false)
+      setBulkDesignationTarget('')
+      fetchData()
+    } catch (err: any) {
+      toast('error', err.message || 'Designation change failed')
+    } finally {
+      setBulkDesignating(false)
     }
   }
 
@@ -253,6 +304,60 @@ export default function Inventory() {
     }
   }
 
+  function startEditDesignation() {
+    if (!selectedItem) return
+    setEditDesignationValue(selectedItem.designation)
+    setEditingDesignation(true)
+  }
+
+  async function saveDesignation() {
+    if (!selectedItem || !editDesignationValue) return
+    if (editDesignationValue === selectedItem.designation) {
+      setEditingDesignation(false)
+      return
+    }
+    setSaving(true)
+    try {
+      const now = new Date().toISOString()
+      const { error: updateErr } = await supabase
+        .from('inv_inventory_item')
+        .update({ designation: editDesignationValue, updated_at: now })
+        .eq('id', selectedItem.id)
+      if (updateErr) throw updateErr
+
+      const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
+        product_id: selectedItem.product_id,
+        inventory_item_id: selectedItem.id,
+        from_location: selectedItem.location_id,
+        to_location: selectedItem.location_id,
+        performed_by: BOSS_PROFILE_ID,
+        movement_type: 'adjustment',
+        quantity: 1,
+        movement_time: now,
+        notes: `Designation changed from ${selectedItem.designation} to ${editDesignationValue}`,
+      })
+      if (moveErr) throw moveErr
+
+      const label = editDesignationValue.replace(/\b\w/g, c => c.toUpperCase())
+      toast('success', `Designation changed to ${label}`)
+      setEditingDesignation(false)
+      await fetchData()
+      const { data: refreshed } = await supabase
+        .from('inv_inventory_item')
+        .select('*, product:inv_product_registry(id,name,sku,category), location:mock_cl_locations(id,name,type), allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id,name)')
+        .eq('id', selectedItem.id)
+        .single()
+      if (refreshed) {
+        setSelectedItem(refreshed as unknown as InventoryItem)
+        fetchMovements(refreshed.id)
+      }
+    } catch (err: any) {
+      toast('error', err.message || 'Failed to update designation')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const inputClass =
     'h-10 rounded-lg border border-neutral-200 bg-neutral-0 px-3 text-[13px] text-neutral-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500'
 
@@ -293,6 +398,15 @@ export default function Inventory() {
           onChange={setLocationFilter}
           placeholder="All Locations"
         />
+        <SearchableSelect
+          options={ALL_DESIGNATIONS.map(d => ({
+            value: d,
+            label: d.replace(/\b\w/g, c => c.toUpperCase()),
+          }))}
+          value={designationFilter}
+          onChange={setDesignationFilter}
+          placeholder="All Designations"
+        />
         <span className="text-[12px] text-neutral-500 ml-auto">{filtered.length} items</span>
       </div>
 
@@ -300,14 +414,22 @@ export default function Inventory() {
       {checkedIds.size > 0 && (
         <div className="flex items-center gap-3 mb-3 p-3 bg-info-50 border border-info-200 rounded-lg">
           <span className="text-[13px] text-neutral-700 font-medium">{checkedIds.size} selected</span>
-          {!showReallocate ? (
-            <button
-              onClick={() => setShowReallocate(true)}
-              className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-neutral-900 text-neutral-0 text-[12px] font-medium hover:bg-neutral-800 transition-colors duration-120"
-            >
-              <RefreshCw size={13} /> Reallocate
-            </button>
-          ) : (
+          {!showReallocate && !showBulkDesignation ? (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowReallocate(true)}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-neutral-900 text-neutral-0 text-[12px] font-medium hover:bg-neutral-800 transition-colors duration-120"
+              >
+                <RefreshCw size={13} /> Reallocate
+              </button>
+              <button
+                onClick={() => setShowBulkDesignation(true)}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50 transition-colors duration-120"
+              >
+                Change Designation
+              </button>
+            </div>
+          ) : showReallocate ? (
             <>
               <SearchableSelect
                 options={[
@@ -333,9 +455,35 @@ export default function Inventory() {
                 Cancel
               </button>
             </>
+          ) : (
+            <>
+              <SearchableSelect
+                options={ALL_DESIGNATIONS.map(d => ({
+                  value: d,
+                  label: d.replace(/\b\w/g, c => c.toUpperCase()),
+                }))}
+                value={bulkDesignationTarget}
+                onChange={setBulkDesignationTarget}
+                placeholder="Select designation…"
+                className="w-48"
+              />
+              <button
+                onClick={handleBulkDesignation}
+                disabled={bulkDesignating || !bulkDesignationTarget}
+                className="h-8 px-3 rounded-lg bg-neutral-900 text-neutral-0 text-[12px] font-medium hover:bg-neutral-800 disabled:opacity-40 transition-colors duration-120"
+              >
+                {bulkDesignating ? 'Saving…' : 'Confirm'}
+              </button>
+              <button
+                onClick={() => { setShowBulkDesignation(false); setBulkDesignationTarget('') }}
+                className="h-8 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </>
           )}
           <button
-            onClick={() => { setCheckedIds(new Set()); setShowReallocate(false) }}
+            onClick={() => { setCheckedIds(new Set()); setShowReallocate(false); setShowBulkDesignation(false) }}
             className="ml-auto text-neutral-400 hover:text-neutral-600"
           >
             <X size={14} />
@@ -364,17 +512,18 @@ export default function Inventory() {
                   <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-600">Client</th>
                   <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-600">Location</th>
                   <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-600">Status</th>
+                  <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-600">Designation</th>
                   <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-600">Created</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-8 text-center text-[12px] text-neutral-500">Loading…</td>
+                    <td colSpan={9} className="px-3 py-8 text-center text-[12px] text-neutral-500">Loading…</td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-8 text-center text-[12px] text-neutral-500">No items found</td>
+                    <td colSpan={9} className="px-3 py-8 text-center text-[12px] text-neutral-500">No items found</td>
                   </tr>
                 ) : (
                   filtered.map(item => {
@@ -406,6 +555,7 @@ export default function Inventory() {
                         </td>
                         <td className="px-3 py-2 text-[12px] text-neutral-700">{loc?.name ?? 'In Transit'}</td>
                         <td className="px-3 py-2"><StatusBadge status={item.status} /></td>
+                        <td className="px-3 py-2"><DesignationBadge designation={item.designation} /></td>
                         <td className="px-3 py-2 text-[12px] text-neutral-500">{formatDate(new Date(item.created_at))}</td>
                       </tr>
                     )
@@ -500,6 +650,45 @@ export default function Inventory() {
                       <span className="text-[11px] uppercase tracking-[0.06em] text-neutral-500">Status</span>
                       <div className="mt-0.5"><StatusBadge status={selectedItem.status} /></div>
                     </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] uppercase tracking-[0.06em] text-neutral-500">Designation</span>
+                      {!editingDesignation && (
+                        <button onClick={startEditDesignation} className="text-neutral-400 hover:text-neutral-600">
+                          <Pencil size={11} />
+                        </button>
+                      )}
+                    </div>
+                    {editingDesignation ? (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <SearchableSelect
+                          options={ALL_DESIGNATIONS.map(d => ({
+                            value: d,
+                            label: d.replace(/\b\w/g, c => c.toUpperCase()),
+                          }))}
+                          value={editDesignationValue}
+                          onChange={setEditDesignationValue}
+                          placeholder="Select…"
+                          className="flex-1"
+                        />
+                        <button
+                          onClick={saveDesignation}
+                          disabled={saving}
+                          className="p-1.5 rounded-md bg-neutral-900 text-neutral-0 hover:bg-neutral-800 disabled:opacity-40 transition-colors"
+                        >
+                          <Check size={13} />
+                        </button>
+                        <button
+                          onClick={() => setEditingDesignation(false)}
+                          className="p-1.5 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 transition-colors"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-0.5"><DesignationBadge designation={selectedItem.designation} /></div>
+                    )}
                   </div>
                 </div>
 

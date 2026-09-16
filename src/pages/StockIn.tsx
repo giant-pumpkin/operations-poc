@@ -13,6 +13,12 @@ const WARRANTY_OPTIONS = [
   { value: '5', label: '5 years' },
 ]
 
+const DESIGNATION_OPTIONS = [
+  { value: 'deployment', label: 'Deployment' },
+  { value: 'spare', label: 'Spare' },
+  { value: 'maintenance', label: 'Maintenance' },
+]
+
 export default function StockIn() {
   const { toast } = useToast()
   const [mode, setMode] = useState<Mode>('serial_tracked')
@@ -25,6 +31,7 @@ export default function StockIn() {
   const [quantity, setQuantity] = useState('')
   const [allocatedClientId, setAllocatedClientId] = useState('')
   const [warrantyDuration, setWarrantyDuration] = useState('')
+  const [designation, setDesignation] = useState('deployment')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -57,6 +64,7 @@ export default function StockIn() {
     setQuantity('')
     setAllocatedClientId('')
     setWarrantyDuration('')
+    setDesignation('deployment')
   }
 
   async function handleSerialSubmit() {
@@ -79,6 +87,7 @@ export default function StockIn() {
         status: 'available' as const,
         allocated_client_id: allocatedClientId || null,
         warranty_duration_years: warrantyDuration ? Number(warrantyDuration) : null,
+        designation,
       }))
 
       const { data: insertedItems, error: itemErr } = await supabase
@@ -256,6 +265,19 @@ export default function StockIn() {
                   value={warrantyDuration}
                   onChange={setWarrantyDuration}
                   placeholder="None"
+                />
+              </div>
+
+              {/* Designation */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Designation
+                </label>
+                <SearchableSelect
+                  options={DESIGNATION_OPTIONS}
+                  value={designation}
+                  onChange={setDesignation}
+                  placeholder="Deployment"
                 />
               </div>
 
