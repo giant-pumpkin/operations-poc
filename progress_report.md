@@ -174,11 +174,6 @@ New column `designation` on `inv_inventory_item` — values: `deployment` (defau
 **Return + Transfer (8e/8f)**
 - No changes — designation is preserved through returns and transfers
 
-### Commits (session 3)
-```
-1886ff4 Thread designation field through inventory, stock, and stock-in pages
-```
-
 ### Bug Fixes (from next_steps.md)
 
 **Fix 1: Metadata adjustments no longer set locations**
@@ -198,9 +193,16 @@ New column `designation` on `inv_inventory_item` — values: `deployment` (defau
 - Inventory detail panel: metadata adjustments show "No location change" instead of "— → —"
 - Movements page: added `return` to movement type filter dropdown
 
+### Movements page — multi-select inventory item filter
+
+- `SearchableSelect` component extended with `multi` prop for multi-select mode (checkmarks, X to clear, "N selected" label)
+- Movements page: new "Item" filter — search and select multiple serial numbers, filters movements to those items
+- Uses Supabase `.in('inventory_item_id', [...])` for the query
+
 ### Commits (session 3)
 ```
 1886ff4 Thread designation field through inventory, stock, and stock-in pages
+d07189c Fix metadata adjustment locations and exclude written-off items from operations
 ```
 
 ### What's Left

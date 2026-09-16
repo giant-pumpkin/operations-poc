@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, Check, Search } from 'lucide-react'
+import { ChevronDown, Check, Search, X } from 'lucide-react'
 
 export interface SelectOption {
   value: string
@@ -7,28 +7,41 @@ export interface SelectOption {
   sublabel?: string
 }
 
-interface Props {
+interface SingleProps {
   options: SelectOption[]
   value: string
   onChange: (value: string) => void
   placeholder?: string
   disabled?: boolean
   className?: string
+  multi?: false
 }
 
-export default function SearchableSelect({
-  options,
-  value,
-  onChange,
-  placeholder = 'Select…',
-  disabled = false,
-  className = '',
-}: Props) {
+interface MultiProps {
+  options: SelectOption[]
+  value: string[]
+  onChange: (value: string[]) => void
+  placeholder?: string
+  disabled?: boolean
+  className?: string
+  multi: true
+}
+
+type Props = SingleProps | MultiProps
+
+export default function SearchableSelect(props: Props) {
+  const {
+    options,
+    placeholder = 'Select…',
+    disabled = false,
+    className = '',
+  } = props
+
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const selected = options.find(o => o.value === value)
+  const isMulti = props.multi === true
 
   const filtered = query
     ? options.filter(o => {
@@ -45,6 +58,101 @@ export default function SearchableSelect({
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
+
+  if (isMulti) {
+    const multiProps = props as MultiProps
+    const selected = multiProps.value
+    const selectedOptions = options.filter(o => selected.includes(o.value))
+
+    function toggle(val: string) {
+      if (selected.includes(val)) {
+        multiProps.onChange(selected.filter(v => v !== val))
+      } else {
+        multiProps.onChange([...selected, val])
+      }
+    }
+
+    const buttonLabel = selectedOptions.length === 0
+      ? placeholder
+      : selectedOptions.length === 1
+        ? selectedOptions[0].label
+        : `${selectedOptions.length} selected`
+
+    return (
+      <div className={`relative ${className}`} ref={containerRef}>
+        <button
+          type="button"
+          onClick={() => { if (!disabled) { setOpen(!open); setQuery('') } }}
+          disabled={disabled}
+          className="w-full h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-neutral-100 disabled:text-neutral-400"
+        >
+          <span className={`truncate ${selected.length > 0 ? 'text-neutral-900' : 'text-neutral-400'}`}>
+            {buttonLabel}
+          </span>
+          <div className="flex items-center gap-1 shrink-0 ml-2">
+            {selected.length > 0 && (
+              <span
+                onClick={e => { e.stopPropagation(); multiProps.onChange([]) }}
+                className="p-0.5 rounded hover:bg-neutral-100 text-neutral-400 hover:text-neutral-600 cursor-pointer"
+              >
+                <X size={13} />
+              </span>
+            )}
+            <ChevronDown size={14} className="text-neutral-400" />
+          </div>
+        </button>
+
+        {open && (
+          <div className="absolute z-50 mt-1 w-full bg-neutral-0 border border-neutral-200 rounded-lg shadow-md overflow-hidden">
+            {options.length > 5 && (
+              <div className="p-1.5 border-b border-neutral-200">
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                    placeholder="Search..."
+                    autoFocus
+                    className="w-full h-8 pl-7 pr-2.5 bg-neutral-50 border border-neutral-200 rounded-md text-[12px] placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                </div>
+              </div>
+            )}
+            <div className="max-h-56 overflow-y-auto py-1">
+              {filtered.length === 0 ? (
+                <div className="px-3 py-2 text-[12px] text-neutral-400">No matches</div>
+              ) : (
+                filtered.map(o => {
+                  const isChecked = selected.includes(o.value)
+                  return (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => toggle(o.value)}
+                      className={`w-full px-3 py-1.5 text-left text-[12px] flex items-center justify-between hover:bg-neutral-50 ${
+                        isChecked ? 'text-brand-500 font-medium' : 'text-neutral-800'
+                      }`}
+                    >
+                      <span className="truncate">
+                        {o.label}
+                        {o.sublabel && <span className="font-mono text-neutral-400 ml-1">({o.sublabel})</span>}
+                      </span>
+                      {isChecked && <Check size={13} className="text-brand-500 shrink-0 ml-2" />}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Single-select mode
+  const singleProps = props as SingleProps
+  const selected = options.find(o => o.value === singleProps.value)
 
   return (
     <div className={`relative ${className}`} ref={containerRef}>
@@ -78,10 +186,10 @@ export default function SearchableSelect({
             </div>
           )}
           <div className="max-h-56 overflow-y-auto py-1">
-            {value && (
+            {singleProps.value && (
               <button
                 type="button"
-                onClick={() => { onChange(''); setOpen(false) }}
+                onClick={() => { singleProps.onChange(''); setOpen(false) }}
                 className="w-full px-3 py-1.5 text-left text-[12px] text-neutral-400 italic hover:bg-neutral-50"
               >
                 Clear
@@ -94,16 +202,16 @@ export default function SearchableSelect({
                 <button
                   key={o.value}
                   type="button"
-                  onClick={() => { onChange(o.value); setOpen(false) }}
+                  onClick={() => { singleProps.onChange(o.value); setOpen(false) }}
                   className={`w-full px-3 py-1.5 text-left text-[12px] flex items-center justify-between hover:bg-neutral-50 ${
-                    o.value === value ? 'text-brand-500 font-medium' : 'text-neutral-800'
+                    o.value === singleProps.value ? 'text-brand-500 font-medium' : 'text-neutral-800'
                   }`}
                 >
                   <span className="truncate">
                     {o.label}
                     {o.sublabel && <span className="font-mono text-neutral-400 ml-1">({o.sublabel})</span>}
                   </span>
-                  {o.value === value && <Check size={13} className="text-brand-500 shrink-0 ml-2" />}
+                  {o.value === singleProps.value && <Check size={13} className="text-brand-500 shrink-0 ml-2" />}
                 </button>
               ))
             )}

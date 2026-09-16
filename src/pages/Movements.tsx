@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { Product, Location, MovementType } from '../lib/types'
+import type { Product, Location, MovementType, InventoryItem } from '../lib/types'
 import { MovementBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
 import SearchableSelect from '../components/SearchableSelect'
@@ -35,11 +35,13 @@ export default function Movements() {
   const [movements, setMovements] = useState<MovementRow[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [locations, setLocations] = useState<Location[]>([])
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
 
   const [filterType, setFilterType] = useState('')
   const [filterProduct, setFilterProduct] = useState('')
   const [filterLocation, setFilterLocation] = useState('')
+  const [filterItems, setFilterItems] = useState<string[]>([])
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
 
@@ -47,15 +49,17 @@ export default function Movements() {
     Promise.all([
       supabase.from('inv_product_registry').select('*').order('name'),
       supabase.from('mock_cl_locations').select('*').order('name'),
-    ]).then(([prodRes, locRes]) => {
+      supabase.from('inv_inventory_item').select('id, serial_number, product:inv_product_registry(name)').order('serial_number'),
+    ]).then(([prodRes, locRes, itemRes]) => {
       if (prodRes.data) setProducts(prodRes.data)
       if (locRes.data) setLocations(locRes.data)
+      if (itemRes.data) setInventoryItems(itemRes.data as unknown as InventoryItem[])
     })
   }, [])
 
   useEffect(() => {
     fetchMovements()
-  }, [filterType, filterProduct, filterLocation, filterDateFrom, filterDateTo])
+  }, [filterType, filterProduct, filterLocation, filterItems, filterDateFrom, filterDateTo])
 
   async function fetchMovements() {
     setLoading(true)
@@ -71,6 +75,9 @@ export default function Movements() {
     if (filterLocation) {
       query = query.or(`from_location.eq.${filterLocation},to_location.eq.${filterLocation}`)
     }
+    if (filterItems.length > 0) {
+      query = query.in('inventory_item_id', filterItems)
+    }
     if (filterDateFrom) query = query.gte('movement_time', filterDateFrom + 'T00:00:00')
     if (filterDateTo) query = query.lte('movement_time', filterDateTo + 'T23:59:59')
 
@@ -79,7 +86,7 @@ export default function Movements() {
     setLoading(false)
   }
 
-  const hasFilters = filterType || filterProduct || filterLocation || filterDateFrom || filterDateTo
+  const hasFilters = filterType || filterProduct || filterLocation || filterItems.length > 0 || filterDateFrom || filterDateTo
 
   return (
     <div className="p-6">
@@ -120,6 +127,22 @@ export default function Movements() {
         </div>
 
         <div>
+          <label className="block text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500 mb-1">Item</label>
+          <SearchableSelect
+            multi
+            options={inventoryItems.map(i => ({
+              value: i.id,
+              label: i.serial_number,
+              sublabel: (i.product as any)?.name,
+            }))}
+            value={filterItems}
+            onChange={setFilterItems}
+            placeholder="All Items"
+            className="min-w-48"
+          />
+        </div>
+
+        <div>
           <label className="block text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500 mb-1">From</label>
           <input
             type="date"
@@ -141,7 +164,7 @@ export default function Movements() {
 
         {hasFilters && (
           <button
-            onClick={() => { setFilterType(''); setFilterProduct(''); setFilterLocation(''); setFilterDateFrom(''); setFilterDateTo('') }}
+            onClick={() => { setFilterType(''); setFilterProduct(''); setFilterLocation(''); setFilterItems([]); setFilterDateFrom(''); setFilterDateTo('') }}
             className="h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-[13px] text-neutral-600 hover:bg-neutral-100 transition-colors duration-120"
           >
             Clear
