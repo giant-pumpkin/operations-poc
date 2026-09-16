@@ -232,17 +232,6 @@ The Return page is gone — Transfer now handles every location-to-location move
 - **Destination dropdown**: warehouses + repair centers + client sites for tracked mode (untracked/quantity mode stays warehouse-only); the current-location option stays visible with a "current location" hint instead of being filtered out (same fix as the Return page tooltip issue), and a unified `disabledReason` always explains why the submit button is disabled
 - Sidebar nav: Return removed, Transfer unchanged otherwise
 
-### Commits (session 3)
-```
-1886ff4 Thread designation field through inventory, stock, and stock-in pages
-d07189c Fix metadata adjustment locations and exclude written-off items from operations
-83fa1fb Add multi-select inventory item filter to stock movements page
-ce923fa Add required movement date input to all movement pages
-14c5ead Prevent returning items to their current location
-883fd73 Always show tooltip explaining why Return submit is disabled
-f0dc6f9 Merge Return into Transfer
-```
-
 ### Stock-in movement notation
 
 - Movement history (Inventory detail panel and Movements page) showed stock-ins as "— → GP Warehouse", which read oddly since there's no real "from"
@@ -265,6 +254,21 @@ f0dc6f9 Merge Return into Transfer
 - Replaced the "search dropdown + Add button" pattern with a single multi-select `SearchableSelect` (the `multi` mode built for the Movements item filter) — selecting an item from the dropdown adds it directly to the selected-items table, no separate Add click
 - Removed `addItemId` state and the `addItem` handler; the dropdown's checked options now are the source of truth for `selectedItemIds`
 - The X button on each row of the selected-items table still works to deselect
+
+### Commits (session 3)
+```
+1886ff4 Thread designation field through inventory, stock, and stock-in pages
+d07189c Fix metadata adjustment locations and exclude written-off items from operations
+83fa1fb Add multi-select inventory item filter to stock movements page
+ce923fa Add required movement date input to all movement pages
+14c5ead Prevent returning items to their current location
+42afaa0 Show tooltip explaining why same-location return is blocked
+883fd73 Always show tooltip explaining why Return submit is disabled
+f0dc6f9 Merge Return into Transfer
+2af1b98 Show "Stock in to X" instead of arrow notation for stock-in movements
+e713930 Add destination type filter to Transfer page
+a5bab2f Replace item search + Add button with multi-select on Transfer page
+```
 
 ### What's Left
 
