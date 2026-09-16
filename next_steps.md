@@ -99,21 +99,35 @@ Remove `reserved` if it exists — it's been replaced by `scheduled`.
 
 ### 4. Stock Transfer Page `/transfer` (Priority: HIGH)
 
-New page for manually transferring items between locations.
+Single page for all item movements between locations. Replaces both the old Transfer and Return pages — **delete the Return page, route, and nav item.**
 
 **For tracked items:**
 
 1. Select item(s) by serial number (searchable, multi-select)
+   - Show ALL items regardless of status (not just `installed` or `available`) — the page handles any location-to-location move
    - When an item is selected, show its current location (auto-populated, read-only)
-2. Select destination location (dropdown of all warehouses + repair centers)
+2. Select destination location (dropdown of all warehouses + repair centers + client sites)
    - Cannot select the same location the item is already at
-3. Add optional notes
-4. Confirmation step: "Transfer [n] items from [source] to [destination] — Confirm?"
-5. On submit:
-   - Create `inv_stock_movement` per item (type: `transfer`, from_location: current, to_location: selected)
+3. **Context-aware reason field:** When ANY selected item's current location is a `client_site`, show a required "Reason" dropdown:
+   - `defect` — item is broken, needs repair
+   - `de_installation` — client no longer needs it, item is functional
+   - `swap` — being replaced by another item
+   - `end_of_contract` — contract ended
+   - When source is NOT a client site, hide the reason field entirely
+4. Add optional notes
+5. Movement date (required, blank by default — item 11)
+6. Confirmation step: "Transfer [n] items from [source] to [destination] — Confirm?"
+7. On submit:
+   - **Movement type auto-inferred from source location type:**
+     - Source is `client_site` → movement type = `return`
+     - Source is `warehouse` or `repair_center` → movement type = `transfer`
+   - Create `inv_stock_movement` per item with the inferred type
    - Update `inv_inventory_item.location_id` to the destination
-   - If destination is a repair center, update status to `in_repair`
-   - If source is a repair center and destination is a warehouse, update status to `available`
+   - **Status auto-updates:**
+     - If reason is `defect` → status = `defect`
+     - If destination is a `repair_center` → status = `in_repair`
+     - If source is a `repair_center` and destination is a `warehouse` → status = `available`
+     - If source is a `client_site` and reason is NOT `defect` → status = `available`
 
 **For untracked items:**
 
@@ -121,35 +135,13 @@ New page for manually transferring items between locations.
 2. Select source warehouse (dropdown, only warehouses where this product has stock > 0)
 3. Select destination warehouse
 4. Enter quantity (cannot exceed available stock at source)
-5. On submit:
+5. Movement date (required, blank by default)
+6. On submit:
    - Create `inv_stock_movement` (type: `transfer`)
    - Decrement `inv_warehouse_stock` at source
    - Increment (or upsert) `inv_warehouse_stock` at destination
 
-### 5. Return Page `/return` (Priority: MEDIUM)
-
-Page for recording items coming back from client sites.
-
-**Workflow:**
-
-1. Select item(s) by serial number
-   - Only show items with status `installed` (items currently at client sites)
-   - Auto-show current location
-2. Select return destination (dropdown of warehouses — default to GP Warehouse)
-3. Select return reason:
-   - `defect` — item is broken, needs repair
-   - `de_installation` — client no longer needs it, item is functional
-   - `swap` — being replaced by another item
-   - `end_of_contract` — contract ended
-4. Add optional notes
-5. On submit:
-   - Create `inv_stock_movement` (type: `return`, from_location: client site, to_location: warehouse)
-   - Update `inv_inventory_item.location_id` to the warehouse
-   - Update `inv_inventory_item.status`:
-     - If reason is `defect` → status = `defect`
-     - If reason is anything else → status = `available`
-
-### 6. Pool Allocation Management (Priority: MEDIUM)
+### 5. Pool Allocation Management (Priority: MEDIUM)
 
 Add ability to set or change the client pool allocation on inventory items.
 
@@ -231,15 +223,11 @@ ORDER BY pr.name, c.name NULLS LAST, ii.designation;
 - Add optional "Designation" dropdown, defaults to Deployment
 - Sets `designation` on newly created items
 
-**8e. Return page**
+**8e. Transfer page (handles both transfers and returns)**
 
-- Do NOT reset designation on return. Item keeps whatever designation it had.
+- Do NOT change designation on any transfer or return. Item keeps whatever designation it had.
 
-**8f. Transfer page**
-
-- Do NOT change designation on transfer. Item keeps its designation.
-
-**8g. Business rule: Spare deployment**
+**8f. Business rule: Spare deployment**
 
 - When a spare is deployed to replace a failed screen (via future stock-out/installation flow), the designation changes from `spare` to `deployment`
 - The movement log captures the change: "Spare deployed to replace SN [X] (defect)"
@@ -303,7 +291,6 @@ Sidebar:
   Stock           /stock
   Stock In        /stock-in
   Transfer        /transfer
-  Return          /return
   Adjustment      /adjustment
   Movements       /movements
 ```

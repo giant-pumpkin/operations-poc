@@ -219,6 +219,19 @@ Every movement page now captures **when the movement actually happened**, separa
 - **Follow-up fix:** the tooltip only covered the same-location case, but the button can also be disabled for missing item/destination/reason/date — hovering in those states showed nothing. Replaced with a single `disabledReason` that picks the first unmet requirement and always renders the tooltip when the button is disabled, so hovering always explains why
 - Matches the tooltip pattern already used on the Transfer page
 
+### Merge Return into Transfer (Item 4 from next_steps.md)
+
+The Return page is gone — Transfer now handles every location-to-location move, inferring movement type and status automatically from where the item currently sits.
+
+- **Deleted**: `src/pages/Return.tsx`, the `/return` route in `App.tsx`, and the "Return" nav item in `Layout.tsx`
+- **Item selection**: tracked mode now lists items in any status (not just `installed`), same as before excluding `written_off`
+- **Auto-detected source type**: each selected item's current location type (`client_site` / `warehouse` / `repair_center`) drives behavior — no manual mode switch
+- **Context-aware Reason field**: appears only when at least one selected item is currently at a `client_site`; required in that case (`defect`, `de_installation`, `swap`, `end_of_contract`)
+- **Movement type inferred per item**: source `client_site` → `return`; source `warehouse` or `repair_center` → `transfer`. A single batch can mix both — each item gets its own correct movement type and default note
+- **Status auto-updates** (`newStatusFor` helper): source `client_site` + reason `defect` → `defect`; source `client_site` + any other reason → `available`; destination is `repair_center` → `in_repair`; source `repair_center` + destination `warehouse` → `available`; otherwise unchanged
+- **Destination dropdown**: warehouses + repair centers + client sites for tracked mode (untracked/quantity mode stays warehouse-only); the current-location option stays visible with a "current location" hint instead of being filtered out (same fix as the Return page tooltip issue), and a unified `disabledReason` always explains why the submit button is disabled
+- Sidebar nav: Return removed, Transfer unchanged otherwise
+
 ### Commits (session 3)
 ```
 1886ff4 Thread designation field through inventory, stock, and stock-in pages

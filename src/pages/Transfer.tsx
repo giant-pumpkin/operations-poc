@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
-import type { InventoryItem, Product, Location, WarehouseStock } from '../lib/types'
+import type { InventoryItem, Product, Location, WarehouseStock, ItemStatus, MovementType } from '../lib/types'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
@@ -11,6 +11,37 @@ import { X } from 'lucide-react'
 
 type Mode = 'tracked' | 'untracked'
 
+const REASON_OPTIONS = [
+  { value: 'defect', label: 'Defect — needs repair' },
+  { value: 'de_installation', label: 'De-installation — client no longer needs it' },
+  { value: 'swap', label: 'Swap — being replaced' },
+  { value: 'end_of_contract', label: 'End of contract' },
+]
+
+const LOCATION_TYPE_LABEL: Record<Location['type'], string> = {
+  client_site: 'Client Site',
+  warehouse: 'Warehouse',
+  repair_center: 'Repair Center',
+}
+
+function sourceType(item: InventoryItem): Location['type'] | undefined {
+  return (item.location as any)?.type
+}
+
+function movementTypeFor(item: InventoryItem): MovementType {
+  return sourceType(item) === 'client_site' ? 'return' : 'transfer'
+}
+
+function newStatusFor(item: InventoryItem, destType: Location['type'] | undefined, reason: string): ItemStatus {
+  const src = sourceType(item)
+  if (src === 'client_site') {
+    return reason === 'defect' ? 'defect' : 'available'
+  }
+  if (destType === 'repair_center') return 'in_repair'
+  if (src === 'repair_center' && destType === 'warehouse') return 'available'
+  return item.status
+}
+
 export default function Transfer() {
   const { toast } = useToast()
   const [mode, setMode] = useState<Mode>('tracked')
@@ -19,6 +50,7 @@ export default function Transfer() {
   const [allItems, setAllItems] = useState<InventoryItem[]>([])
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([])
   const [addItemId, setAddItemId] = useState('')
+  const [reason, setReason] = useState('')
 
   // untracked state
   const [qtyProducts, setQtyProducts] = useState<Product[]>([])
@@ -42,6 +74,7 @@ export default function Transfer() {
   useEffect(() => {
     setSelectedItemIds([])
     setAddItemId('')
+    setReason('')
     setSelectedProductId('')
     setSourceWarehouseId('')
     setTransferQty('')
@@ -73,7 +106,7 @@ export default function Transfer() {
         .neq('status', 'written_off')
         .order('serial_number'),
       supabase.from('inv_product_registry').select('*').eq('tracking_type', 'quantity_only').eq('active', true).order('name'),
-      supabase.from('mock_cl_locations').select('*').in('type', ['warehouse', 'repair_center']).order('name'),
+      supabase.from('mock_cl_locations').select('*').order('name'),
     ])
     if (itemsRes.data) setAllItems(itemsRes.data as unknown as InventoryItem[])
     if (prodsRes.data) setQtyProducts(prodsRes.data)
@@ -84,6 +117,12 @@ export default function Transfer() {
   const availableToAdd = allItems.filter(i =>
     !selectedItemIds.includes(i.id) && i.location_id != null
   )
+
+  const hasClientSiteSource = selectedItems.some(i => sourceType(i) === 'client_site')
+
+  useEffect(() => {
+    if (!hasClientSiteSource) setReason('')
+  }, [hasClientSiteSource])
 
   function addItem() {
     if (!addItemId) return
@@ -98,26 +137,32 @@ export default function Transfer() {
   const sourceStock = warehouseStock.find(s => (s.location as any)?.id === sourceWarehouseId)
   const maxQty = sourceStock?.quantity ?? 0
 
-  const exceedsMax = mode === 'untracked' && Number(transferQty) > maxQty && maxQty > 0
-
   const sameLocationError = (() => {
     if (!destinationId) return false
     if (mode === 'tracked') {
-      return selectedItems.length > 0 && selectedItems.every(i => i.location_id === destinationId)
+      return selectedItems.length > 0 && selectedItems.some(i => i.location_id === destinationId)
     }
     return sourceWarehouseId === destinationId
   })()
 
-  function canSubmitTracked() {
-    if (selectedItems.length === 0 || !destinationId || !movementDate) return false
-    return selectedItems.every(i => i.location_id !== destinationId)
-  }
-
-  function canSubmitUntracked() {
-    return !!(selectedProductId && sourceWarehouseId && destinationId && movementDate &&
-      sourceWarehouseId !== destinationId &&
-      Number(transferQty) > 0 && Number(transferQty) <= maxQty)
-  }
+  const disabledReason = (() => {
+    if (mode === 'tracked') {
+      if (selectedItems.length === 0) return 'Select at least one item'
+      if (!destinationId) return 'Select a destination'
+      if (sameLocationError) return 'Cannot transfer to the same location'
+      if (hasClientSiteSource && !reason) return 'Select a reason'
+      if (!movementDate) return 'Enter a movement date'
+      return null
+    }
+    if (!selectedProductId) return 'Select a product'
+    if (!sourceWarehouseId) return 'Select a source warehouse'
+    if (!destinationId) return 'Select a destination'
+    if (sameLocationError) return 'Cannot transfer to the same location'
+    if (!(Number(transferQty) > 0)) return 'Enter a quantity'
+    if (Number(transferQty) > maxQty) return 'Quantity exceeds maximum'
+    if (!movementDate) return 'Enter a movement date'
+    return null
+  })()
 
   async function handleSubmit() {
     const movementTime = new Date(movementDate).toISOString()
@@ -126,13 +171,11 @@ export default function Transfer() {
       if (mode === 'tracked') {
         const now = new Date().toISOString()
         const dest = destinations.find(d => d.id === destinationId)!
-        const isRepairCenter = dest.type === 'repair_center'
 
         for (const item of selectedItems) {
-          const fromRepair = (item.location as any)?.type === 'repair_center'
-          const newStatus = isRepairCenter ? 'in_repair'
-            : fromRepair ? 'available'
-            : item.status
+          const movementType = movementTypeFor(item)
+          const newStatus = newStatusFor(item, dest.type, reason)
+          const defaultNote = movementType === 'return' ? `Return reason: ${reason.replace(/_/g, ' ')}` : null
 
           const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
             product_id: item.product_id,
@@ -140,10 +183,10 @@ export default function Transfer() {
             from_location: item.location_id,
             to_location: destinationId,
             performed_by: BOSS_PROFILE_ID,
-            movement_type: 'transfer',
+            movement_type: movementType,
             quantity: 1,
             movement_time: movementTime,
-            notes: notes.trim() || null,
+            notes: notes.trim() || defaultNote,
           })
           if (moveErr) throw moveErr
 
@@ -158,7 +201,7 @@ export default function Transfer() {
           }
         }
 
-        toast('success', `Transferred ${selectedItems.length} item(s) to ${dest.name}`)
+        toast('success', `Moved ${selectedItems.length} item(s) to ${dest.name}`)
       } else {
         const qty = Number(transferQty)
         const now = new Date().toISOString()
@@ -207,6 +250,7 @@ export default function Transfer() {
       }
 
       setSelectedItemIds([])
+      setReason('')
       setSelectedProductId('')
       setSourceWarehouseId('')
       setTransferQty('')
@@ -223,15 +267,13 @@ export default function Transfer() {
   }
 
   const destOptions = destinations
-    .filter(d => {
-      if (mode === 'untracked') return d.id !== sourceWarehouseId
-      if (selectedItems.length === 1) return d.id !== selectedItems[0].location_id
-      return true
-    })
+    .filter(d => mode === 'tracked' || d.type !== 'client_site')
     .map(d => ({
       value: d.id,
       label: d.name,
-      sublabel: d.type === 'repair_center' ? 'Repair Center' : 'Warehouse',
+      sublabel: selectedItems.some(i => i.location_id === d.id) || sourceWarehouseId === d.id
+        ? `${LOCATION_TYPE_LABEL[d.type]} · current location`
+        : LOCATION_TYPE_LABEL[d.type],
     }))
 
   return (
@@ -294,21 +336,44 @@ export default function Transfer() {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedItems.map(item => (
-                    <tr key={item.id} className="border-t border-neutral-100">
-                      <td className="px-3 py-2 font-mono text-[12px]">{item.serial_number}</td>
-                      <td className="px-3 py-2 text-[12px]">{(item.product as any)?.name}</td>
-                      <td className="px-3 py-2 text-[12px]">{(item.location as any)?.name ?? '—'}</td>
-                      <td className="px-3 py-2"><StatusBadge status={item.status} /></td>
-                      <td className="px-1 py-2">
-                        <button onClick={() => removeItem(item.id)} className="p-1 text-neutral-400 hover:text-danger-500">
-                          <X size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {selectedItems.map(item => {
+                    const loc = item.location as any
+                    return (
+                      <tr key={item.id} className="border-t border-neutral-100">
+                        <td className="px-3 py-2 font-mono text-[12px]">{item.serial_number}</td>
+                        <td className="px-3 py-2 text-[12px]">{(item.product as any)?.name}</td>
+                        <td className="px-3 py-2 text-[12px]">
+                          {loc?.name ?? '—'}
+                          {loc?.type && (
+                            <span className="text-neutral-400 ml-1">({LOCATION_TYPE_LABEL[loc.type as Location['type']]})</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2"><StatusBadge status={item.status} /></td>
+                        <td className="px-1 py-2">
+                          <button onClick={() => removeItem(item.id)} className="p-1 text-neutral-400 hover:text-danger-500">
+                            <X size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
+            )}
+
+            {/* Reason — only when any selected item is currently at a client site */}
+            {hasClientSiteSource && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Reason <span className="text-danger-500">*</span>
+                </label>
+                <SearchableSelect
+                  options={REASON_OPTIONS}
+                  value={reason}
+                  onChange={setReason}
+                  placeholder="Select reason…"
+                />
+              </div>
             )}
           </>
         ) : (
@@ -380,7 +445,7 @@ export default function Transfer() {
             type="text"
             value={notes}
             onChange={e => setNotes(e.target.value)}
-            placeholder="Transfer reason or notes"
+            placeholder="Additional notes"
             className="w-full h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
@@ -393,14 +458,14 @@ export default function Transfer() {
           <div className="relative w-fit group">
             <button
               onClick={() => setShowConfirm(true)}
-              disabled={mode === 'tracked' ? !canSubmitTracked() : !canSubmitUntracked()}
+              disabled={disabledReason !== null}
               className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
             >
               Review Transfer
             </button>
-            {(sameLocationError || exceedsMax) && (
+            {disabledReason && (
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg bg-[#2b2b2e] text-neutral-0 text-[12px] font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
-                {sameLocationError ? 'Cannot transfer to the same location' : 'Quantity exceeds maximum'}
+                {disabledReason}
                 <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] border-t-[#2b2b2e]" />
               </div>
             )}
@@ -409,7 +474,7 @@ export default function Transfer() {
           <div className="border border-warning-200 bg-warning-50 rounded-lg p-4 space-y-3">
             <p className="text-[13px] text-neutral-800 font-medium">
               {mode === 'tracked'
-                ? `Transfer ${selectedItems.length} item(s) to ${destinations.find(d => d.id === destinationId)?.name}?`
+                ? `Move ${selectedItems.length} item(s) to ${destinations.find(d => d.id === destinationId)?.name}?`
                 : `Transfer ${transferQty}× ${qtyProducts.find(p => p.id === selectedProductId)?.name} to ${destinations.find(d => d.id === destinationId)?.name}?`
               }
             </p>
@@ -419,7 +484,7 @@ export default function Transfer() {
                 disabled={submitting}
                 className="h-9 px-4 rounded-lg bg-neutral-900 text-neutral-0 text-[13px] font-medium hover:bg-neutral-800 disabled:opacity-40 transition-colors duration-120"
               >
-                {submitting ? 'Transferring…' : 'Confirm Transfer'}
+                {submitting ? 'Processing…' : 'Confirm'}
               </button>
               <button
                 onClick={() => setShowConfirm(false)}
