@@ -775,6 +775,8 @@ export default function Inventory() {
                             </div>
                             {!from && !to ? (
                               <div className="text-neutral-400 italic">No location change</div>
+                            ) : m.movement_type === 'stock_in' && !from && to ? (
+                              <div className="text-neutral-600">Stock in to {to.name}</div>
                             ) : (
                               <div className="flex items-center gap-1 text-neutral-600">
                                 <span>{from?.name ?? '—'}</span>

@@ -205,9 +205,9 @@ export default function Movements() {
                     <td className="px-3 py-2 text-[12px] text-neutral-600 font-mono">{m.inventory_item?.serial_number ?? '—'}</td>
                     <td className="px-3 py-2 text-[12px] text-neutral-700 text-right font-mono">{m.quantity}</td>
                     {!m.from_loc && !m.to_loc ? (
-                      <>
-                        <td colSpan={2} className="px-3 py-2 text-[12px] text-neutral-400 italic">No location change</td>
-                      </>
+                      <td colSpan={2} className="px-3 py-2 text-[12px] text-neutral-400 italic">No location change</td>
+                    ) : m.movement_type === 'stock_in' && !m.from_loc && m.to_loc ? (
+                      <td colSpan={2} className="px-3 py-2 text-[12px] text-neutral-600">Stock in to {m.to_loc.name}</td>
                     ) : (
                       <>
                         <td className="px-3 py-2 text-[12px] text-neutral-600">{m.from_loc?.name ?? '—'}</td>

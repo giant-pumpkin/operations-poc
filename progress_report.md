@@ -238,7 +238,21 @@ The Return page is gone — Transfer now handles every location-to-location move
 d07189c Fix metadata adjustment locations and exclude written-off items from operations
 83fa1fb Add multi-select inventory item filter to stock movements page
 ce923fa Add required movement date input to all movement pages
+14c5ead Prevent returning items to their current location
+883fd73 Always show tooltip explaining why Return submit is disabled
+f0dc6f9 Merge Return into Transfer
 ```
+
+### Stock-in movement notation
+
+- Movement history (Inventory detail panel and Movements page) showed stock-ins as "— → GP Warehouse", which read oddly since there's no real "from"
+- Both now render stock-in movements as "Stock in to GP Warehouse" instead of the arrow notation; every other movement type keeps the from → to arrow
+
+### Sandbox data reset
+
+- Cleared `inv_inventory_item`, `inv_stock_movement`, and `inv_warehouse_stock` (all rows) at the user's request to start a fresh inventory run
+- Products, companies, locations, and profiles were left untouched — the reference/catalog data stays intact, only transactional data was wiped
+- **Pending data fix note is now moot** — the write-off data inconsistency it referenced no longer exists after the reset
 
 ### What's Left
 
@@ -248,4 +262,3 @@ ce923fa Add required movement date input to all movement pages
 - User auth + role-based access
 - DE1 (installation pipeline) → needs Jobs + Contracts
 - Stock-out to client site → needs Jobs
-- **Pending data fix:** `UPDATE inv_inventory_item SET status = 'written_off' WHERE status = 'defect' AND location_id IS NULL;`
