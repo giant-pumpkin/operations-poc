@@ -49,7 +49,6 @@ export default function Transfer() {
   // tracked state
   const [allItems, setAllItems] = useState<InventoryItem[]>([])
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([])
-  const [addItemId, setAddItemId] = useState('')
   const [reason, setReason] = useState('')
 
   // untracked state
@@ -74,7 +73,6 @@ export default function Transfer() {
 
   useEffect(() => {
     setSelectedItemIds([])
-    setAddItemId('')
     setReason('')
     setSelectedProductId('')
     setSourceWarehouseId('')
@@ -116,21 +114,13 @@ export default function Transfer() {
   }
 
   const selectedItems = allItems.filter(i => selectedItemIds.includes(i.id))
-  const availableToAdd = allItems.filter(i =>
-    !selectedItemIds.includes(i.id) && i.location_id != null
-  )
+  const selectableItems = allItems.filter(i => i.location_id != null)
 
   const hasClientSiteSource = selectedItems.some(i => sourceType(i) === 'client_site')
 
   useEffect(() => {
     if (!hasClientSiteSource) setReason('')
   }, [hasClientSiteSource])
-
-  function addItem() {
-    if (!addItemId) return
-    setSelectedItemIds(prev => [...prev, addItemId])
-    setAddItemId('')
-  }
 
   function removeItem(id: string) {
     setSelectedItemIds(prev => prev.filter(x => x !== id))
@@ -309,26 +299,17 @@ export default function Transfer() {
             {/* Select items */}
             <div>
               <label className="block text-sm font-medium text-neutral-700 mb-1">Select Items</label>
-              <div className="flex items-center gap-2">
-                <SearchableSelect
-                  options={availableToAdd.map(i => ({
-                    value: i.id,
-                    label: i.serial_number,
-                    sublabel: `${(i.product as any)?.name} · ${(i.location as any)?.name ?? 'Unknown'}`,
-                  }))}
-                  value={addItemId}
-                  onChange={setAddItemId}
-                  placeholder="Search by serial number…"
-                  className="flex-1"
-                />
-                <button
-                  onClick={addItem}
-                  disabled={!addItemId}
-                  className="h-10 px-4 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 transition-colors duration-120"
-                >
-                  Add
-                </button>
-              </div>
+              <SearchableSelect
+                multi
+                options={selectableItems.map(i => ({
+                  value: i.id,
+                  label: i.serial_number,
+                  sublabel: `${(i.product as any)?.name} · ${(i.location as any)?.name ?? 'Unknown'}`,
+                }))}
+                value={selectedItemIds}
+                onChange={setSelectedItemIds}
+                placeholder="Search by serial number…"
+              />
             </div>
 
             {/* Selected items table */}

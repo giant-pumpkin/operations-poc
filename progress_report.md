@@ -260,6 +260,12 @@ f0dc6f9 Merge Return into Transfer
 - Selecting a type clears any previously chosen destination that no longer matches
 - Order is now: select items → destination type → destination → notes → movement date
 
+### Transfer page — multi-select item picker
+
+- Replaced the "search dropdown + Add button" pattern with a single multi-select `SearchableSelect` (the `multi` mode built for the Movements item filter) — selecting an item from the dropdown adds it directly to the selected-items table, no separate Add click
+- Removed `addItemId` state and the `addItem` handler; the dropdown's checked options now are the source of truth for `selectedItemIds`
+- The X button on each row of the selected-items table still works to deselect
+
 ### What's Left
 
 - Reporting / dashboards
