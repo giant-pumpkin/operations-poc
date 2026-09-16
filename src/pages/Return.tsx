@@ -46,6 +46,14 @@ export default function Return() {
   const selectedItems = installedItems.filter(i => selectedItemIds.includes(i.id))
   const availableToAdd = installedItems.filter(i => !selectedItemIds.includes(i.id))
 
+  const sameLocationError = destinationId
+    ? selectedItems.some(i => i.location_id === destinationId)
+    : false
+
+  const destOptions = warehouses
+    .filter(w => selectedItems.length !== 1 || w.id !== selectedItems[0].location_id)
+    .map(w => ({ value: w.id, label: w.name }))
+
   function addItem() {
     if (!addItemId) return
     setSelectedItemIds(prev => [...prev, addItemId])
@@ -59,6 +67,10 @@ export default function Return() {
   async function handleSubmit() {
     if (selectedItems.length === 0 || !destinationId || !reason || !movementDate) {
       toast('error', 'Please fill in all required fields')
+      return
+    }
+    if (sameLocationError) {
+      toast('error', 'Cannot return an item to the location it already occupies')
       return
     }
     const movementTime = new Date(movementDate)
@@ -172,7 +184,7 @@ export default function Return() {
         <div>
           <label className="block text-sm font-medium text-neutral-700 mb-1">Return To</label>
           <SearchableSelect
-            options={warehouses.map(w => ({ value: w.id, label: w.name }))}
+            options={destOptions}
             value={destinationId}
             onChange={setDestinationId}
             placeholder="Select warehouse…"
@@ -206,13 +218,21 @@ export default function Return() {
         <MovementDateInput value={movementDate} onChange={setMovementDate} />
 
         {/* Submit */}
-        <button
-          onClick={handleSubmit}
-          disabled={submitting || selectedItems.length === 0 || !destinationId || !reason || !movementDate}
-          className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
-        >
-          {submitting ? 'Processing…' : `Return ${selectedItems.length || ''} Item${selectedItems.length !== 1 ? 's' : ''}`}
-        </button>
+        <div className="relative w-fit group">
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || selectedItems.length === 0 || !destinationId || !reason || !movementDate || sameLocationError}
+            className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
+          >
+            {submitting ? 'Processing…' : `Return ${selectedItems.length || ''} Item${selectedItems.length !== 1 ? 's' : ''}`}
+          </button>
+          {sameLocationError && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg bg-[#2b2b2e] text-neutral-0 text-[12px] font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
+              Cannot return to the same location
+              <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] border-t-[#2b2b2e]" />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

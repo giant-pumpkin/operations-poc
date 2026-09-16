@@ -212,11 +212,18 @@ Every movement page now captures **when the movement actually happened**, separa
 - All other `updated_at` fields (item rows, warehouse stock rows) still use actual system time — only `movement_time` reflects the user-entered date
 - **Movements page**: added "Logged At" column showing `created_at` next to the existing "Movement Date" (`movement_time`) column; list already sorted by `movement_time` descending, unchanged
 
+### Return page — prevent same-location return
+
+- "Return To" dropdown now excludes the item's current location when exactly one item is selected
+- For multiple items with mixed locations, submit button disables with a dark hover tooltip ("Cannot return to the same location") if any selected item's current location matches the chosen destination
+- Matches the same pattern already used on the Transfer page
+
 ### Commits (session 3)
 ```
 1886ff4 Thread designation field through inventory, stock, and stock-in pages
 d07189c Fix metadata adjustment locations and exclude written-off items from operations
 83fa1fb Add multi-select inventory item filter to stock movements page
+ce923fa Add required movement date input to all movement pages
 ```
 
 ### What's Left
