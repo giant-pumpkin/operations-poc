@@ -4,6 +4,7 @@ import type { InventoryItem, Location } from '../lib/types'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
+import MovementDateInput from '../components/MovementDateInput'
 import { X } from 'lucide-react'
 
 const RETURN_REASONS = [
@@ -22,6 +23,7 @@ export default function Return() {
   const [destinationId, setDestinationId] = useState('')
   const [reason, setReason] = useState('')
   const [notes, setNotes] = useState('')
+  const [movementDate, setMovementDate] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -55,8 +57,13 @@ export default function Return() {
   }
 
   async function handleSubmit() {
-    if (selectedItems.length === 0 || !destinationId || !reason) {
+    if (selectedItems.length === 0 || !destinationId || !reason || !movementDate) {
       toast('error', 'Please fill in all required fields')
+      return
+    }
+    const movementTime = new Date(movementDate)
+    if (movementTime > new Date()) {
+      toast('error', 'Movement date cannot be in the future.')
       return
     }
 
@@ -74,7 +81,7 @@ export default function Return() {
           performed_by: BOSS_PROFILE_ID,
           movement_type: 'return',
           quantity: 1,
-          movement_time: now,
+          movement_time: movementTime.toISOString(),
           notes: notes.trim() || `Return reason: ${reason.replace(/_/g, ' ')}`,
         })
         if (moveErr) throw moveErr
@@ -92,6 +99,7 @@ export default function Return() {
       setDestinationId('')
       setReason('')
       setNotes('')
+      setMovementDate('')
       loadData()
     } catch (err: any) {
       toast('error', err.message || 'Return failed')
@@ -194,10 +202,13 @@ export default function Return() {
           />
         </div>
 
+        {/* Movement date */}
+        <MovementDateInput value={movementDate} onChange={setMovementDate} />
+
         {/* Submit */}
         <button
           onClick={handleSubmit}
-          disabled={submitting || selectedItems.length === 0 || !destinationId || !reason}
+          disabled={submitting || selectedItems.length === 0 || !destinationId || !reason || !movementDate}
           className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
         >
           {submitting ? 'Processing…' : `Return ${selectedItems.length || ''} Item${selectedItems.length !== 1 ? 's' : ''}`}

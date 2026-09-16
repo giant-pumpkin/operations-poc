@@ -15,6 +15,7 @@ interface MovementRow {
   movement_type: MovementType
   quantity: number
   movement_time: string
+  created_at: string
   notes: string | null
   product: { name: string; sku: string } | null
   inventory_item: { serial_number: string } | null
@@ -177,7 +178,8 @@ export default function Movements() {
           <table className="w-full">
             <thead>
               <tr className="bg-neutral-100">
-                <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Time</th>
+                <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Movement Date</th>
+                <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Logged At</th>
                 <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Type</th>
                 <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Product</th>
                 <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Serial #</th>
@@ -190,13 +192,14 @@ export default function Movements() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-[13px] text-neutral-400">Loading…</td></tr>
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-[13px] text-neutral-400">Loading…</td></tr>
               ) : movements.length === 0 ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-[13px] text-neutral-400">No movements found</td></tr>
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-[13px] text-neutral-400">No movements found</td></tr>
               ) : (
                 movements.map(m => (
                   <tr key={m.id} className="border-t border-neutral-200 hover:bg-neutral-25 transition-colors duration-120">
                     <td className="px-3 py-2 text-[12px] text-neutral-700 font-mono whitespace-nowrap">{formatDateTime(m.movement_time)}</td>
+                    <td className="px-3 py-2 text-[12px] text-neutral-400 font-mono whitespace-nowrap">{formatDateTime(m.created_at)}</td>
                     <td className="px-3 py-2"><MovementBadge type={m.movement_type} /></td>
                     <td className="px-3 py-2 text-[12px] text-neutral-700">{m.product?.name ?? '—'}</td>
                     <td className="px-3 py-2 text-[12px] text-neutral-600 font-mono">{m.inventory_item?.serial_number ?? '—'}</td>

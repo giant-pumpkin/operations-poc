@@ -6,6 +6,7 @@ import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
 import { StatusBadge } from '../components/StatusBadge'
 import { activateWarrantyIfNeeded } from '../lib/warranty'
+import MovementDateInput from '../components/MovementDateInput'
 import { X } from 'lucide-react'
 
 type Mode = 'tracked' | 'untracked'
@@ -30,6 +31,7 @@ export default function Transfer() {
   const [destinations, setDestinations] = useState<Location[]>([])
   const [destinationId, setDestinationId] = useState('')
   const [notes, setNotes] = useState('')
+  const [movementDate, setMovementDate] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
 
@@ -45,6 +47,7 @@ export default function Transfer() {
     setTransferQty('')
     setDestinationId('')
     setNotes('')
+    setMovementDate('')
     setShowConfirm(false)
   }, [mode])
 
@@ -106,17 +109,18 @@ export default function Transfer() {
   })()
 
   function canSubmitTracked() {
-    if (selectedItems.length === 0 || !destinationId) return false
+    if (selectedItems.length === 0 || !destinationId || !movementDate) return false
     return selectedItems.every(i => i.location_id !== destinationId)
   }
 
   function canSubmitUntracked() {
-    return selectedProductId && sourceWarehouseId && destinationId &&
+    return !!(selectedProductId && sourceWarehouseId && destinationId && movementDate &&
       sourceWarehouseId !== destinationId &&
-      Number(transferQty) > 0 && Number(transferQty) <= maxQty
+      Number(transferQty) > 0 && Number(transferQty) <= maxQty)
   }
 
   async function handleSubmit() {
+    const movementTime = new Date(movementDate).toISOString()
     setSubmitting(true)
     try {
       if (mode === 'tracked') {
@@ -138,7 +142,7 @@ export default function Transfer() {
             performed_by: BOSS_PROFILE_ID,
             movement_type: 'transfer',
             quantity: 1,
-            movement_time: now,
+            movement_time: movementTime,
             notes: notes.trim() || null,
           })
           if (moveErr) throw moveErr
@@ -167,7 +171,7 @@ export default function Transfer() {
           performed_by: BOSS_PROFILE_ID,
           movement_type: 'transfer',
           quantity: qty,
-          movement_time: now,
+          movement_time: movementTime,
           notes: notes.trim() || null,
         })
         if (moveErr) throw moveErr
@@ -208,6 +212,7 @@ export default function Transfer() {
       setTransferQty('')
       setDestinationId('')
       setNotes('')
+      setMovementDate('')
       setShowConfirm(false)
       loadData()
     } catch (err: any) {
@@ -379,6 +384,9 @@ export default function Transfer() {
             className="w-full h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
+
+        {/* Movement date */}
+        <MovementDateInput value={movementDate} onChange={setMovementDate} />
 
         {/* Confirm / Submit */}
         {!showConfirm ? (

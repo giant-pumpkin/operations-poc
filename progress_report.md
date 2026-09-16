@@ -199,10 +199,24 @@ New column `designation` on `inv_inventory_item` — values: `deployment` (defau
 - Movements page: new "Item" filter — search and select multiple serial numbers, filters movements to those items
 - Uses Supabase `.in('inventory_item_id', [...])` for the query
 
+### Movement Date input (Item 11 from next_steps.md)
+
+Every movement page now captures **when the movement actually happened**, separate from when the record was logged.
+
+- `inv_stock_movement.created_at` already existed in the DB (auto-set, `now()` default) — no migration needed
+- New shared `MovementDateInput` component: required `datetime-local` picker, blank by default, `max` capped to now (prevents future dates in the native picker) plus a JS check as a backstop
+- **Stock In**: added to both serial and quantity modes — replaces the old `new Date().toISOString()` default for `movement_time`
+- **Transfer**: added for both tracked and untracked modes
+- **Return**: added
+- **Adjustment**: added to both tracked (write-off/status change) and untracked (quantity correction) modes
+- All other `updated_at` fields (item rows, warehouse stock rows) still use actual system time — only `movement_time` reflects the user-entered date
+- **Movements page**: added "Logged At" column showing `created_at` next to the existing "Movement Date" (`movement_time`) column; list already sorted by `movement_time` descending, unchanged
+
 ### Commits (session 3)
 ```
 1886ff4 Thread designation field through inventory, stock, and stock-in pages
 d07189c Fix metadata adjustment locations and exclude written-off items from operations
+83fa1fb Add multi-select inventory item filter to stock movements page
 ```
 
 ### What's Left

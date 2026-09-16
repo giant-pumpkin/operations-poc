@@ -5,6 +5,7 @@ import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
 import { StatusBadge } from '../components/StatusBadge'
+import MovementDateInput from '../components/MovementDateInput'
 
 type Mode = 'tracked' | 'untracked'
 
@@ -33,6 +34,7 @@ export default function Adjustment() {
   const [action, setAction] = useState('')
   const [newStatus, setNewStatus] = useState('')
   const [reason, setReason] = useState('')
+  const [movementDateTracked, setMovementDateTracked] = useState('')
   const [submittingTracked, setSubmittingTracked] = useState(false)
 
   // untracked
@@ -43,6 +45,7 @@ export default function Adjustment() {
   const [stockRecord, setStockRecord] = useState<WarehouseStock | null>(null)
   const [newQty, setNewQty] = useState('')
   const [qtyReason, setQtyReason] = useState('')
+  const [movementDateUntracked, setMovementDateUntracked] = useState('')
   const [submittingUntracked, setSubmittingUntracked] = useState(false)
 
   useEffect(() => {
@@ -54,11 +57,13 @@ export default function Adjustment() {
     setAction('')
     setNewStatus('')
     setReason('')
+    setMovementDateTracked('')
     setSelectedProductId('')
     setSelectedWarehouseId('')
     setStockRecord(null)
     setNewQty('')
     setQtyReason('')
+    setMovementDateUntracked('')
   }, [mode])
 
   useEffect(() => {
@@ -97,7 +102,7 @@ export default function Adjustment() {
   const selectedItem = allItems.find(i => i.id === selectedItemId) ?? null
 
   async function handleTrackedSubmit() {
-    if (!selectedItem || !action || !reason.trim()) {
+    if (!selectedItem || !action || !reason.trim() || !movementDateTracked) {
       toast('error', 'Please fill in all fields')
       return
     }
@@ -105,10 +110,16 @@ export default function Adjustment() {
       toast('error', 'Please select a new status')
       return
     }
+    const movementTime = new Date(movementDateTracked)
+    if (movementTime > new Date()) {
+      toast('error', 'Movement date cannot be in the future.')
+      return
+    }
 
     setSubmittingTracked(true)
     try {
       const now = new Date().toISOString()
+      const moveTime = movementTime.toISOString()
 
       if (action === 'write_off') {
         const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
@@ -119,7 +130,7 @@ export default function Adjustment() {
           performed_by: BOSS_PROFILE_ID,
           movement_type: 'adjustment',
           quantity: 1,
-          movement_time: now,
+          movement_time: moveTime,
           notes: `Write-off: ${reason.trim()}`,
         })
         if (moveErr) throw moveErr
@@ -141,7 +152,7 @@ export default function Adjustment() {
           performed_by: BOSS_PROFILE_ID,
           movement_type: 'adjustment',
           quantity: 1,
-          movement_time: now,
+          movement_time: moveTime,
           notes: `Status change (${oldStatus} → ${newStatus}): ${reason.trim()}`,
         })
         if (moveErr) throw moveErr
@@ -159,6 +170,7 @@ export default function Adjustment() {
       setAction('')
       setNewStatus('')
       setReason('')
+      setMovementDateTracked('')
       loadData()
     } catch (err: any) {
       toast('error', err.message || 'Adjustment failed')
@@ -169,7 +181,7 @@ export default function Adjustment() {
 
   async function handleUntrackedSubmit() {
     const correctedQty = Number(newQty)
-    if (!selectedProductId || !selectedWarehouseId || !qtyReason.trim() || isNaN(correctedQty) || correctedQty < 0) {
+    if (!selectedProductId || !selectedWarehouseId || !qtyReason.trim() || isNaN(correctedQty) || correctedQty < 0 || !movementDateUntracked) {
       toast('error', 'Please fill in all fields with a valid quantity')
       return
     }
@@ -178,6 +190,12 @@ export default function Adjustment() {
     const diff = correctedQty - currentQty
     if (diff === 0) {
       toast('warning', 'No change in quantity')
+      return
+    }
+
+    const movementTime = new Date(movementDateUntracked)
+    if (movementTime > new Date()) {
+      toast('error', 'Movement date cannot be in the future.')
       return
     }
 
@@ -193,7 +211,7 @@ export default function Adjustment() {
         performed_by: BOSS_PROFILE_ID,
         movement_type: 'adjustment',
         quantity: Math.abs(diff),
-        movement_time: now,
+        movement_time: movementTime.toISOString(),
         notes: `Adjustment (${diff > 0 ? '+' : ''}${diff}): ${qtyReason.trim()}`,
       })
       if (moveErr) throw moveErr
@@ -216,6 +234,7 @@ export default function Adjustment() {
       setSelectedProductId('')
       setSelectedWarehouseId('')
       setStockRecord(null)
+      setMovementDateUntracked('')
       setNewQty('')
       setQtyReason('')
     } catch (err: any) {
@@ -318,10 +337,12 @@ export default function Adjustment() {
               />
             </div>
 
+            <MovementDateInput value={movementDateTracked} onChange={setMovementDateTracked} />
+
             {/* Submit */}
             <button
               onClick={handleTrackedSubmit}
-              disabled={submittingTracked || !selectedItemId || !action || !reason.trim() || (action === 'status_change' && !newStatus)}
+              disabled={submittingTracked || !selectedItemId || !action || !reason.trim() || !movementDateTracked || (action === 'status_change' && !newStatus)}
               className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
             >
               {submittingTracked ? 'Processing…' : action === 'write_off' ? 'Write Off Item' : 'Apply Status Change'}
@@ -389,10 +410,12 @@ export default function Adjustment() {
               />
             </div>
 
+            <MovementDateInput value={movementDateUntracked} onChange={setMovementDateUntracked} />
+
             {/* Submit */}
             <button
               onClick={handleUntrackedSubmit}
-              disabled={submittingUntracked || !selectedProductId || !selectedWarehouseId || !qtyReason.trim() || diff === 0}
+              disabled={submittingUntracked || !selectedProductId || !selectedWarehouseId || !qtyReason.trim() || !movementDateUntracked || diff === 0}
               className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
             >
               {submittingUntracked ? 'Processing…' : `Apply Adjustment (${diff > 0 ? '+' : ''}${diff})`}

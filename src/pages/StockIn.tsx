@@ -4,6 +4,7 @@ import type { Product, Location, Company } from '../lib/types'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
+import MovementDateInput from '../components/MovementDateInput'
 
 type Mode = 'serial_tracked' | 'quantity_only'
 
@@ -32,6 +33,7 @@ export default function StockIn() {
   const [allocatedClientId, setAllocatedClientId] = useState('')
   const [warrantyDuration, setWarrantyDuration] = useState('')
   const [designation, setDesignation] = useState('deployment')
+  const [movementDate, setMovementDate] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -65,6 +67,7 @@ export default function StockIn() {
     setAllocatedClientId('')
     setWarrantyDuration('')
     setDesignation('deployment')
+    setMovementDate('')
   }
 
   async function handleSerialSubmit() {
@@ -73,8 +76,13 @@ export default function StockIn() {
       .map(s => s.trim())
       .filter(Boolean)
 
-    if (!productId || !warehouseId || lines.length === 0) {
+    if (!productId || !warehouseId || lines.length === 0 || !movementDate) {
       toast('warning', 'Please fill in all fields and enter at least one serial number.')
+      return
+    }
+    const movementTime = new Date(movementDate)
+    if (movementTime > new Date()) {
+      toast('warning', 'Movement date cannot be in the future.')
       return
     }
 
@@ -105,7 +113,7 @@ export default function StockIn() {
         performed_by: BOSS_PROFILE_ID,
         movement_type: 'stock_in' as const,
         quantity: 1,
-        movement_time: new Date().toISOString(),
+        movement_time: movementTime.toISOString(),
         notes: null,
       }))
 
@@ -126,8 +134,13 @@ export default function StockIn() {
 
   async function handleQuantitySubmit() {
     const qty = parseInt(quantity, 10)
-    if (!productId || !warehouseId || !qty || qty <= 0) {
+    if (!productId || !warehouseId || !qty || qty <= 0 || !movementDate) {
       toast('warning', 'Please fill in all fields with a valid quantity.')
+      return
+    }
+    const movementTime = new Date(movementDate)
+    if (movementTime > new Date()) {
+      toast('warning', 'Movement date cannot be in the future.')
       return
     }
 
@@ -167,7 +180,7 @@ export default function StockIn() {
           performed_by: BOSS_PROFILE_ID,
           movement_type: 'stock_in' as const,
           quantity: qty,
-          movement_time: new Date().toISOString(),
+          movement_time: movementTime.toISOString(),
           notes: null,
         })
 
@@ -314,12 +327,14 @@ export default function StockIn() {
               />
             </div>
           )}
+
+          <MovementDateInput value={movementDate} onChange={setMovementDate} />
         </div>
 
         <div className="mt-6 flex gap-3">
           <button
             onClick={mode === 'serial_tracked' ? handleSerialSubmit : handleQuantitySubmit}
-            disabled={submitting}
+            disabled={submitting || !movementDate}
             className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50 transition-colors duration-120"
           >
             {submitting ? 'Processing…' : 'Receive Stock'}
