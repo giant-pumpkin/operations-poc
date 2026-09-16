@@ -50,9 +50,11 @@ export default function Return() {
     ? selectedItems.some(i => i.location_id === destinationId)
     : false
 
-  const destOptions = warehouses
-    .filter(w => selectedItems.length !== 1 || w.id !== selectedItems[0].location_id)
-    .map(w => ({ value: w.id, label: w.name }))
+  const destOptions = warehouses.map(w => ({
+    value: w.id,
+    label: w.name,
+    sublabel: selectedItems.some(i => i.location_id === w.id) ? 'current location' : undefined,
+  }))
 
   function addItem() {
     if (!addItemId) return

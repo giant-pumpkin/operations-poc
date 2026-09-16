@@ -214,9 +214,9 @@ Every movement page now captures **when the movement actually happened**, separa
 
 ### Return page — prevent same-location return
 
-- "Return To" dropdown now excludes the item's current location when exactly one item is selected
-- For multiple items with mixed locations, submit button disables with a dark hover tooltip ("Cannot return to the same location") if any selected item's current location matches the chosen destination
-- Matches the same pattern already used on the Transfer page
+- Submit button disables with a dark hover tooltip ("Cannot return to the same location") whenever any selected item's current location matches the chosen "Return To" destination
+- The matching destination stays selectable in the dropdown (not silently removed) but is annotated "(current location)" so the reason is visible, not hidden — first pass filtered the option out of the dropdown entirely, which meant the tooltip could never actually be seen; corrected to keep the option visible with the hint
+- Matches the tooltip pattern already used on the Transfer page
 
 ### Commits (session 3)
 ```
