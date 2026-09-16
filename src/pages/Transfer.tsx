@@ -61,6 +61,7 @@ export default function Transfer() {
 
   // shared
   const [destinations, setDestinations] = useState<Location[]>([])
+  const [destinationTypeFilter, setDestinationTypeFilter] = useState('')
   const [destinationId, setDestinationId] = useState('')
   const [notes, setNotes] = useState('')
   const [movementDate, setMovementDate] = useState('')
@@ -78,6 +79,7 @@ export default function Transfer() {
     setSelectedProductId('')
     setSourceWarehouseId('')
     setTransferQty('')
+    setDestinationTypeFilter('')
     setDestinationId('')
     setNotes('')
     setMovementDate('')
@@ -254,6 +256,7 @@ export default function Transfer() {
       setSelectedProductId('')
       setSourceWarehouseId('')
       setTransferQty('')
+      setDestinationTypeFilter('')
       setDestinationId('')
       setNotes('')
       setMovementDate('')
@@ -266,8 +269,13 @@ export default function Transfer() {
     }
   }
 
+  const destTypeOptions = (['client_site', 'warehouse', 'repair_center'] as Location['type'][])
+    .filter(t => mode === 'tracked' || t !== 'client_site')
+    .map(t => ({ value: t, label: LOCATION_TYPE_LABEL[t] }))
+
   const destOptions = destinations
     .filter(d => mode === 'tracked' || d.type !== 'client_site')
+    .filter(d => !destinationTypeFilter || d.type === destinationTypeFilter)
     .map(d => ({
       value: d.id,
       label: d.name,
@@ -426,6 +434,17 @@ export default function Transfer() {
             )}
           </>
         )}
+
+        {/* Destination type filter */}
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">Destination Type</label>
+          <SearchableSelect
+            options={destTypeOptions}
+            value={destinationTypeFilter}
+            onChange={v => { setDestinationTypeFilter(v); setDestinationId('') }}
+            placeholder="All Types"
+          />
+        </div>
 
         {/* Destination */}
         <div>

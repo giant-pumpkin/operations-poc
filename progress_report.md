@@ -254,6 +254,12 @@ f0dc6f9 Merge Return into Transfer
 - Products, companies, locations, and profiles were left untouched — the reference/catalog data stays intact, only transactional data was wiped
 - **Pending data fix note is now moot** — the write-off data inconsistency it referenced no longer exists after the reset
 
+### Transfer page — destination type filter
+
+- New "Destination Type" dropdown between item selection and the destination picker: filters the destination list to Client Site / Warehouse / Repair Center (tracked mode) or Warehouse / Repair Center (untracked mode, no client sites)
+- Selecting a type clears any previously chosen destination that no longer matches
+- Order is now: select items → destination type → destination → notes → movement date
+
 ### What's Left
 
 - Reporting / dashboards
