@@ -214,8 +214,9 @@ Every movement page now captures **when the movement actually happened**, separa
 
 ### Return page — prevent same-location return
 
-- Submit button disables with a dark hover tooltip ("Cannot return to the same location") whenever any selected item's current location matches the chosen "Return To" destination
+- Submit button disables with a dark hover tooltip whenever any selected item's current location matches the chosen "Return To" destination
 - The matching destination stays selectable in the dropdown (not silently removed) but is annotated "(current location)" so the reason is visible, not hidden — first pass filtered the option out of the dropdown entirely, which meant the tooltip could never actually be seen; corrected to keep the option visible with the hint
+- **Follow-up fix:** the tooltip only covered the same-location case, but the button can also be disabled for missing item/destination/reason/date — hovering in those states showed nothing. Replaced with a single `disabledReason` that picks the first unmet requirement and always renders the tooltip when the button is disabled, so hovering always explains why
 - Matches the tooltip pattern already used on the Transfer page
 
 ### Commits (session 3)

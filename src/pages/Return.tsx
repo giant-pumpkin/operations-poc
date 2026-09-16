@@ -50,6 +50,15 @@ export default function Return() {
     ? selectedItems.some(i => i.location_id === destinationId)
     : false
 
+  const disabledReason = (() => {
+    if (selectedItems.length === 0) return 'Select at least one installed item'
+    if (!destinationId) return 'Select a return destination'
+    if (sameLocationError) return 'Cannot return to the same location'
+    if (!reason) return 'Select a return reason'
+    if (!movementDate) return 'Enter a movement date'
+    return null
+  })()
+
   const destOptions = warehouses.map(w => ({
     value: w.id,
     label: w.name,
@@ -223,14 +232,14 @@ export default function Return() {
         <div className="relative w-fit group">
           <button
             onClick={handleSubmit}
-            disabled={submitting || selectedItems.length === 0 || !destinationId || !reason || !movementDate || sameLocationError}
+            disabled={submitting || disabledReason !== null}
             className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
           >
             {submitting ? 'Processing…' : `Return ${selectedItems.length || ''} Item${selectedItems.length !== 1 ? 's' : ''}`}
           </button>
-          {sameLocationError && (
+          {!submitting && disabledReason && (
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg bg-[#2b2b2e] text-neutral-0 text-[12px] font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
-              Cannot return to the same location
+              {disabledReason}
               <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] border-t-[#2b2b2e]" />
             </div>
           )}
