@@ -47,6 +47,7 @@ export default function Jobs() {
   const [showForm, setShowForm] = useState(false)
   const [formType, setFormType] = useState<JobType | ''>('')
   const [formClientId, setFormClientId] = useState('')
+  const [formLocationType, setFormLocationType] = useState('')
   const [formLocationId, setFormLocationId] = useState('')
   const [formPartnerId, setFormPartnerId] = useState('')
   const [formScheduledDate, setFormScheduledDate] = useState('')
@@ -90,21 +91,33 @@ export default function Jobs() {
   })
 
   const clientLocations = locations.filter(l => l.cl_company_id === formClientId)
+  const locationTypeOptions = Array.from(new Set(clientLocations.map(l => l.type)))
+    .map(t => ({ value: t, label: formatLabel(t) }))
+  const locationOptions = formLocationType
+    ? clientLocations.filter(l => l.type === formLocationType)
+    : clientLocations
 
   function resetForm() {
     setFormType('')
     setFormClientId('')
+    setFormLocationType('')
     setFormLocationId('')
     setFormPartnerId('')
     setFormScheduledDate('')
     setFormNotes('')
   }
 
+  const createDisabledReason = (() => {
+    if (!formType) return 'Select a job type'
+    if (!formClientId) return 'Select a client'
+    if (!formLocationType) return 'Select a location type'
+    if (!formLocationId) return 'Select a location'
+    if (!formPartnerId) return 'Select a partner'
+    return null
+  })()
+
   async function handleCreate() {
-    if (!formType || !formClientId || !formLocationId) {
-      toast('error', 'Please fill in job type, client, and location')
-      return
-    }
+    if (createDisabledReason) return
     setCreating(true)
     try {
       const { data: jobNumber, error: numErr } = await supabase.rpc('generate_job_number')
@@ -253,7 +266,7 @@ export default function Jobs() {
 
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">Job Type</label>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Job Type <span className="text-red-500">*</span></label>
                 <SearchableSelect
                   options={JOB_TYPES.map(t => ({ value: t, label: formatLabel(t) }))}
                   value={formType}
@@ -263,35 +276,44 @@ export default function Jobs() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">Client</label>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Client <span className="text-red-500">*</span></label>
                 <SearchableSelect
                   options={companies.map(c => ({ value: c.id, label: c.name }))}
                   value={formClientId}
-                  onChange={v => { setFormClientId(v); setFormLocationId('') }}
+                  onChange={v => { setFormClientId(v); setFormLocationType(''); setFormLocationId('') }}
                   placeholder="Select client…"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">Location</label>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Location Type <span className="text-red-500">*</span></label>
                 <SearchableSelect
-                  options={clientLocations.map(l => ({ value: l.id, label: l.name }))}
-                  value={formLocationId}
-                  onChange={setFormLocationId}
-                  placeholder={formClientId ? 'Select location…' : 'Select a client first'}
+                  options={locationTypeOptions}
+                  value={formLocationType}
+                  onChange={v => { setFormLocationType(v); setFormLocationId('') }}
+                  placeholder={formClientId ? 'Select location type…' : 'Select a client first'}
                   disabled={!formClientId}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">
-                  Partner <span className="text-neutral-400 font-normal">(optional)</span>
-                </label>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Location <span className="text-red-500">*</span></label>
+                <SearchableSelect
+                  options={locationOptions.map(l => ({ value: l.id, label: l.name }))}
+                  value={formLocationId}
+                  onChange={setFormLocationId}
+                  placeholder={formLocationType ? 'Select location…' : 'Select a location type first'}
+                  disabled={!formLocationType}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Partner <span className="text-red-500">*</span></label>
                 <SearchableSelect
                   options={companies.map(c => ({ value: c.id, label: c.name }))}
                   value={formPartnerId}
                   onChange={setFormPartnerId}
-                  placeholder="None"
+                  placeholder="Select partner…"
                 />
               </div>
 
@@ -327,13 +349,21 @@ export default function Jobs() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleCreate}
-                disabled={creating}
-                className="h-10 px-4 bg-neutral-900 text-neutral-0 rounded-lg text-[13px] font-medium hover:bg-neutral-800 transition-colors disabled:opacity-50"
-              >
-                {creating ? 'Creating…' : 'Create'}
-              </button>
+              <div className="relative group">
+                <button
+                  onClick={handleCreate}
+                  disabled={creating || createDisabledReason !== null}
+                  className="h-10 px-4 bg-neutral-900 text-neutral-0 rounded-lg text-[13px] font-medium hover:bg-neutral-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {creating ? 'Creating…' : 'Create'}
+                </button>
+                {createDisabledReason && !creating && (
+                  <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 rounded-lg bg-[#2b2b2e] text-neutral-0 text-[12px] font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
+                    {createDisabledReason}
+                    <div className="absolute top-full right-4 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] border-t-[#2b2b2e]" />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

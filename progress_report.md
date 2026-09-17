@@ -346,3 +346,10 @@ Implemented in `src/pages/Stock.tsx`:
 - **Known limitation:** a product with planned job demand but *zero* inventory items anywhere (not even in another client's pool) won't get a product-level row at all, since product groups are still derived from existing inventory items. Not hit by current seed data; flagging for a future pass if it becomes a real scenario
 - **Bug found and fixed along the way:** the job_items query originally tried to embed `client:mock_cl_companies(name)` off `job_jobs`, which has two FKs to that table (`client_id` and `partner_id`) — PostgREST rejected the ambiguous embed and the whole query silently returned no data, so Planned showed 0 everywhere until fixed. Now uses the explicit `mock_cl_companies!job_jobs_client_id_fkey` hint.
 - Verified live in the browser: QM55C now shows Available 2 / Planned 1 / Free 1 (aggregate), with the KFC phantom pool correctly showing Free −1 in red; warehouse tabs correctly hide Planned/Free.
+
+### Create Job form — Location Type gate + required fields
+
+- Location Type dropdown (added earlier this session) is now a required, explicit step: it no longer defaults to "all types" — it must be picked before Location becomes selectable (Location is disabled with "Select a location type first" until then)
+- Job Type, Client, Location Type, Location, and Partner are now all required fields (`*` on labels). Partner was previously optional; it's now mandatory in the UI even though `job_jobs.partner_id` stays nullable in the DB
+- Replaced the old toast-on-click validation with the same `disabledReason` + dark hover-tooltip pattern used on Transfer/Return/Adjustment (see [[feedback-no-lazy-ui]]) — the Create button is disabled until every required field is filled, and hovering always explains the next unmet requirement
+- Verified live in the browser: button stays disabled and tooltips walk through each missing field in order; Location correctly stays locked until a Location Type is chosen.
