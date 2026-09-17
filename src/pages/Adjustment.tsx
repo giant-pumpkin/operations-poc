@@ -40,8 +40,10 @@ export default function Adjustment() {
   // untracked
   const [qtyProducts, setQtyProducts] = useState<Product[]>([])
   const [warehouses, setWarehouses] = useState<Location[]>([])
+  const [productStockPools, setProductStockPools] = useState<WarehouseStock[]>([])
   const [selectedProductId, setSelectedProductId] = useState('')
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('')
+  const [selectedPoolId, setSelectedPoolId] = useState('')
   const [stockRecord, setStockRecord] = useState<WarehouseStock | null>(null)
   const [newQty, setNewQty] = useState('')
   const [qtyReason, setQtyReason] = useState('')
@@ -60,6 +62,8 @@ export default function Adjustment() {
     setMovementDateTracked('')
     setSelectedProductId('')
     setSelectedWarehouseId('')
+    setSelectedPoolId('')
+    setProductStockPools([])
     setStockRecord(null)
     setNewQty('')
     setQtyReason('')
@@ -67,22 +71,30 @@ export default function Adjustment() {
   }, [mode])
 
   useEffect(() => {
-    if (selectedProductId && selectedWarehouseId) {
+    if (selectedProductId) {
       supabase
         .from('inv_warehouse_stock')
-        .select('*')
+        .select('*, location:mock_cl_locations(id, name), allocated_client:mock_cl_companies!inv_warehouse_stock_allocated_client_id_fkey(id, name)')
         .eq('product_id', selectedProductId)
-        .eq('location_id', selectedWarehouseId)
-        .maybeSingle()
         .then(({ data }) => {
-          setStockRecord(data as WarehouseStock | null)
-          setNewQty(data ? String(data.quantity) : '0')
+          setProductStockPools((data as WarehouseStock[]) ?? [])
+          setSelectedPoolId('')
+          setStockRecord(null)
+          setNewQty('')
         })
     } else {
+      setProductStockPools([])
+      setSelectedPoolId('')
       setStockRecord(null)
       setNewQty('')
     }
-  }, [selectedProductId, selectedWarehouseId])
+  }, [selectedProductId])
+
+  useEffect(() => {
+    const pool = productStockPools.find(p => p.id === selectedPoolId) ?? null
+    setStockRecord(pool)
+    setNewQty(pool ? String(pool.quantity) : '0')
+  }, [selectedPoolId, productStockPools])
 
   async function loadData() {
     const [itemsRes, prodsRes, locsRes] = await Promise.all([
@@ -181,7 +193,7 @@ export default function Adjustment() {
 
   async function handleUntrackedSubmit() {
     const correctedQty = Number(newQty)
-    if (!selectedProductId || !selectedWarehouseId || !qtyReason.trim() || isNaN(correctedQty) || correctedQty < 0 || !movementDateUntracked) {
+    if (!selectedProductId || !selectedPoolId || !qtyReason.trim() || isNaN(correctedQty) || correctedQty < 0 || !movementDateUntracked) {
       toast('error', 'Please fill in all fields with a valid quantity')
       return
     }
@@ -202,12 +214,13 @@ export default function Adjustment() {
     setSubmittingUntracked(true)
     try {
       const now = new Date().toISOString()
+      const locationId = stockRecord?.location_id ?? selectedWarehouseId
 
       const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
         product_id: selectedProductId,
         inventory_item_id: null,
-        from_location: diff < 0 ? selectedWarehouseId : null,
-        to_location: diff > 0 ? selectedWarehouseId : null,
+        from_location: diff < 0 ? locationId : null,
+        to_location: diff > 0 ? locationId : null,
         performed_by: BOSS_PROFILE_ID,
         movement_type: 'adjustment',
         quantity: Math.abs(diff),
@@ -222,17 +235,14 @@ export default function Adjustment() {
           .update({ quantity: correctedQty, updated_at: now })
           .eq('id', stockRecord.id)
         if (error) throw error
-      } else if (correctedQty > 0) {
-        const { error } = await supabase
-          .from('inv_warehouse_stock')
-          .insert({ product_id: selectedProductId, location_id: selectedWarehouseId, quantity: correctedQty })
-        if (error) throw error
       }
 
       const product = qtyProducts.find(p => p.id === selectedProductId)
       toast('success', `${product?.name}: adjusted by ${diff > 0 ? '+' : ''}${diff}`)
       setSelectedProductId('')
       setSelectedWarehouseId('')
+      setSelectedPoolId('')
+      setProductStockPools([])
       setStockRecord(null)
       setMovementDateUntracked('')
       setNewQty('')
@@ -361,19 +371,29 @@ export default function Adjustment() {
               />
             </div>
 
-            {/* Warehouse */}
-            <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-1">Warehouse</label>
-              <SearchableSelect
-                options={warehouses.map(w => ({ value: w.id, label: w.name }))}
-                value={selectedWarehouseId}
-                onChange={setSelectedWarehouseId}
-                placeholder="Select warehouse…"
-              />
-            </div>
+            {/* Stock Pool */}
+            {selectedProductId && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Stock Pool</label>
+                <SearchableSelect
+                  options={productStockPools.map(p => {
+                    const locName = (p.location as any)?.name ?? '—'
+                    const clientName = (p.allocated_client as any)?.name
+                    const desLabel = (p.designation ?? 'deployment').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                    const label = clientName
+                      ? `${locName} · ${clientName} · ${desLabel}`
+                      : `${locName} · Unallocated · ${desLabel}`
+                    return { value: p.id, label, sublabel: `${p.quantity} in stock` }
+                  })}
+                  value={selectedPoolId}
+                  onChange={setSelectedPoolId}
+                  placeholder="Select stock pool…"
+                />
+              </div>
+            )}
 
             {/* Quantity adjustment */}
-            {selectedProductId && selectedWarehouseId && (
+            {selectedProductId && selectedPoolId && (
               <div className="grid grid-cols-3 gap-3">
                 <div className="p-3 bg-neutral-50 rounded-lg">
                   <span className="block text-[11px] text-neutral-500 mb-1">Current Quantity</span>
@@ -415,7 +435,7 @@ export default function Adjustment() {
             {/* Submit */}
             <button
               onClick={handleUntrackedSubmit}
-              disabled={submittingUntracked || !selectedProductId || !selectedWarehouseId || !qtyReason.trim() || !movementDateUntracked || diff === 0}
+              disabled={submittingUntracked || !selectedProductId || !selectedPoolId || !qtyReason.trim() || !movementDateUntracked || diff === 0}
               className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
             >
               {submittingUntracked ? 'Processing…' : `Apply Adjustment (${diff > 0 ? '+' : ''}${diff})`}

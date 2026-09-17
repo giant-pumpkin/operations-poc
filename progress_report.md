@@ -423,3 +423,56 @@ All four test scenarios from `next_steps.md` were browser-tested and passed:
 - Bulk import
 - User auth + role-based access
 - Ownership field UI — deferred until the Airtable migration (Section 12)
+
+---
+
+## Progress Report — Session 7 (2026-09-17)
+
+### Client-to-client transfer bug fix
+
+**User-reported bug:** Transferring a serial-tracked item from one client site to another (e.g. KFC → Advice IT) incorrectly classified the movement as "Return" and set status to "available" instead of "installed".
+
+**Root cause:** `movementTypeFor()` in Transfer.tsx only checked source type — any move FROM a client site was classified as a return. `newStatusFor()` had no client-to-client case.
+
+**Fix:**
+- `movementTypeFor(item, destType)` — added destination type parameter; only classify as "return" when source is client_site AND destination is NOT client_site
+- `newStatusFor(item, destType, reason)` — added client-to-client case: returns "installed" when both source and destination are client sites; returns "installed" for any warehouse-to-client transfer
+
+**Data cleanup:** Reverted the bad movement record and restored the item to its previous state via direct SQL.
+
+### Quantity-only stock allocation (new feature)
+
+Quantity-only stock (`inv_warehouse_stock`) previously had no allocation granularity — just `(product_id, location_id, quantity)`. Serial-tracked items had `allocated_client_id` and `designation` but quantity stock didn't. This made it impossible to track which client pool quantity stock belonged to.
+
+**DB migration:**
+- Added `allocated_client_id` (FK to `mock_cl_companies`, nullable) and `designation` (text, default 'deployment', check constraint: deployment/spare/maintenance) to `inv_warehouse_stock`
+- Replaced old unique constraint `(product_id, location_id)` with new unique index on `(product_id, location_id, COALESCE(allocated_client_id, '00000000...'), designation)` to allow multiple pools per product-location
+
+**Code changes across 7 files:**
+
+| File | Changes |
+|------|---------|
+| `types.ts` | Added `allocated_client_id`, `designation`, `allocated_client` to `WarehouseStock` interface |
+| `StockIn.tsx` | Added Allocate to Client + Designation dropdowns to quantity mode; queries/inserts match on all pool dimensions |
+| `Stock.tsx` | Query joins `allocated_client`; pool breakdown shows "Client · Designation" (matching serial-tracked style); accordion always expandable |
+| `Transfer.tsx` | Source dropdown shows full pool identity; selection by stock row ID (not location); destination lookup carries `allocated_client_id` and `designation` through |
+| `Adjustment.tsx` | Replaced warehouse selector with "Stock Pool" selector showing all pools for a product; queries by pool ID |
+| `JobDetail.tsx` | Quantity fulfillment looks for client-allocated pool first, falls back to unallocated |
+| `Products.tsx` | Detail view shows "Pool" column with client · designation breakdown |
+
+**Data cleanup:** Cleared orphaned 8GB SD Card movement data (stock existed without corresponding stock-in movements from seed data). Reset quantity to 0 and job item fulfillment to planned.
+
+### Commits (session 7)
+```
+(pending)
+```
+
+### What's Left
+
+- Reporting / dashboards
+- Deployment greenlight dashboard (JL2 from next_steps.md)
+- Sections 3, 4, 5 of next_steps.md
+- Product image upload
+- Bulk import
+- User auth + role-based access
+- Ownership field UI — deferred until the Airtable migration (Section 12)

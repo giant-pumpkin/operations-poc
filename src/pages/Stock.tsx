@@ -22,6 +22,8 @@ interface UntrackedRow {
   sku: string
   warehouseName: string
   warehouseId: string
+  clientName: string | null
+  designation: string
   quantity: number
 }
 
@@ -51,6 +53,8 @@ interface ProductGroup {
 
 interface WarehouseRow {
   warehouseName: string
+  clientName: string | null
+  designation: string
   quantity: number
 }
 
@@ -146,12 +150,18 @@ function ExpandableWarehouseRows({ warehouses, expanded }: { warehouses: Warehou
         display: expanded ? undefined : 'none',
       }}
     >
-      {warehouses.map(w => (
-        <tr key={w.warehouseName} className="bg-neutral-0 border-t border-neutral-100">
-          <td colSpan={2} className="px-3 py-1.5 text-[12px] text-neutral-700 pl-10">{w.warehouseName}</td>
-          <td className="px-3 py-1.5 font-mono text-[12px] text-neutral-700 text-right">{w.quantity}</td>
-        </tr>
-      ))}
+      {warehouses.map((w, i) => {
+        const designationLabel = w.designation.replace(/\b\w/g, c => c.toUpperCase())
+        const poolLabel = w.clientName
+          ? `${w.clientName} · ${designationLabel}`
+          : `Unallocated · ${designationLabel}`
+        return (
+          <tr key={i} className="bg-neutral-0 border-t border-neutral-100">
+            <td colSpan={2} className="px-3 py-1.5 text-[12px] text-neutral-700 pl-10">{poolLabel}</td>
+            <td className="px-3 py-1.5 font-mono text-[12px] text-neutral-700 text-right">{w.quantity}</td>
+          </tr>
+        )
+      })}
     </tbody>
   )
 }
@@ -177,7 +187,7 @@ export default function Stock() {
           .neq('status', 'written_off'),
         supabase
           .from('inv_warehouse_stock')
-          .select('id, quantity, product:inv_product_registry(name, sku), location:mock_cl_locations(id, name)'),
+          .select('id, quantity, designation, allocated_client:mock_cl_companies!inv_warehouse_stock_allocated_client_id_fkey(id, name), product:inv_product_registry(name, sku), location:mock_cl_locations(id, name)'),
         supabase
           .from('mock_cl_locations')
           .select('id, name')
@@ -212,6 +222,8 @@ export default function Stock() {
             sku: row.product?.sku ?? '—',
             warehouseName: row.location?.name ?? '—',
             warehouseId: row.location?.id ?? '',
+            clientName: row.allocated_client?.name ?? null,
+            designation: row.designation ?? 'deployment',
             quantity: row.quantity,
           }))
         )
@@ -340,7 +352,7 @@ export default function Stock() {
         grouped.set(key, group)
       }
       group.totalQuantity += row.quantity
-      group.warehouses.push({ warehouseName: row.warehouseName, quantity: row.quantity })
+      group.warehouses.push({ warehouseName: row.warehouseName, clientName: row.clientName, designation: row.designation, quantity: row.quantity })
     }
 
     return Array.from(grouped.values()).sort((a, b) => a.productName.localeCompare(b.productName))
@@ -508,27 +520,20 @@ export default function Stock() {
               {untrackedGroups.map(group => {
                 const key = `${group.productName}__${group.sku}`
                 const isExpanded = expandedQtyProducts.has(key)
-                const hasMultipleWarehouses = group.warehouses.length > 1
                 return (
                   <Fragment key={key}>
                     <tbody>
                       <tr
-                        onClick={() => hasMultipleWarehouses && toggleQtyProduct(key)}
-                        className={`border-t border-neutral-100 transition-colors duration-120 ${
-                          hasMultipleWarehouses ? 'cursor-pointer' : ''
-                        } ${isExpanded ? 'bg-neutral-100' : 'bg-neutral-0 hover:bg-neutral-25'}`}
+                        onClick={() => toggleQtyProduct(key)}
+                        className={`border-t border-neutral-100 transition-colors duration-120 cursor-pointer ${isExpanded ? 'bg-neutral-100' : 'bg-neutral-0 hover:bg-neutral-25'}`}
                       >
                         <td className="px-3 py-2 text-[12px] text-neutral-800 font-medium">
                           <span className="inline-flex items-center gap-1.5">
-                            {hasMultipleWarehouses ? (
-                              <ChevronRight
-                                size={14}
-                                strokeWidth={2}
-                                className={`text-neutral-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
-                              />
-                            ) : (
-                              <span className="w-3.5" />
-                            )}
+                            <ChevronRight
+                              size={14}
+                              strokeWidth={2}
+                              className={`text-neutral-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                            />
                             {group.productName}
                           </span>
                         </td>
@@ -536,9 +541,7 @@ export default function Stock() {
                         <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-semibold">{group.totalQuantity}</td>
                       </tr>
                     </tbody>
-                    {hasMultipleWarehouses && (
-                      <ExpandableWarehouseRows warehouses={group.warehouses} expanded={isExpanded} />
-                    )}
+                    <ExpandableWarehouseRows warehouses={group.warehouses} expanded={isExpanded} />
                   </Fragment>
                 )
               })}

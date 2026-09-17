@@ -92,7 +92,7 @@ export default function Transfer() {
     if (selectedProductId) {
       supabase
         .from('inv_warehouse_stock')
-        .select('*, location:mock_cl_locations(id, name)')
+        .select('*, location:mock_cl_locations(id, name), allocated_client:mock_cl_companies!inv_warehouse_stock_allocated_client_id_fkey(id, name)')
         .eq('product_id', selectedProductId)
         .gt('quantity', 0)
         .then(({ data }) => setWarehouseStock((data as any) ?? []))
@@ -130,7 +130,7 @@ export default function Transfer() {
     setSelectedItemIds(prev => prev.filter(x => x !== id))
   }
 
-  const sourceStock = warehouseStock.find(s => (s.location as any)?.id === sourceWarehouseId)
+  const sourceStock = warehouseStock.find(s => s.id === sourceWarehouseId)
   const maxQty = sourceStock?.quantity ?? 0
 
   const sameLocationError = (() => {
@@ -138,7 +138,7 @@ export default function Transfer() {
     if (mode === 'tracked') {
       return selectedItems.length > 0 && selectedItems.some(i => i.location_id === destinationId)
     }
-    return sourceWarehouseId === destinationId
+    return sourceStock?.location_id === destinationId
   })()
 
   const disabledReason = (() => {
@@ -202,10 +202,13 @@ export default function Transfer() {
         const qty = Number(transferQty)
         const now = new Date().toISOString()
 
+        const srcClientId = sourceStock!.allocated_client_id ?? null
+        const srcDesignation = sourceStock!.designation ?? 'deployment'
+
         const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
           product_id: selectedProductId,
           inventory_item_id: null,
-          from_location: sourceWarehouseId,
+          from_location: sourceStock!.location_id,
           to_location: destinationId,
           performed_by: BOSS_PROFILE_ID,
           movement_type: 'transfer',
@@ -221,12 +224,15 @@ export default function Transfer() {
           .eq('id', sourceStock!.id)
         if (decErr) throw decErr
 
-        const { data: existing } = await supabase
+        let destQuery = supabase
           .from('inv_warehouse_stock')
           .select('id, quantity')
           .eq('product_id', selectedProductId)
           .eq('location_id', destinationId)
-          .maybeSingle()
+          .eq('designation', srcDesignation)
+        if (srcClientId) destQuery = destQuery.eq('allocated_client_id', srcClientId)
+        else destQuery = destQuery.is('allocated_client_id', null)
+        const { data: existing } = await destQuery.maybeSingle()
 
         if (existing) {
           const { error } = await supabase
@@ -237,7 +243,7 @@ export default function Transfer() {
         } else {
           const { error } = await supabase
             .from('inv_warehouse_stock')
-            .insert({ product_id: selectedProductId, location_id: destinationId, quantity: qty })
+            .insert({ product_id: selectedProductId, location_id: destinationId, allocated_client_id: srcClientId, designation: srcDesignation, quantity: qty })
           if (error) throw error
         }
 
@@ -273,7 +279,7 @@ export default function Transfer() {
     .map(d => ({
       value: d.id,
       label: d.name,
-      sublabel: selectedItems.some(i => i.location_id === d.id) || sourceWarehouseId === d.id
+      sublabel: selectedItems.some(i => i.location_id === d.id) || sourceStock?.location_id === d.id
         ? `${LOCATION_TYPE_LABEL[d.type]} · current location`
         : LOCATION_TYPE_LABEL[d.type],
     }))
@@ -387,11 +393,15 @@ export default function Transfer() {
               <div>
                 <label className="block text-sm font-medium text-neutral-700 mb-1">Source Warehouse</label>
                 <SearchableSelect
-                  options={warehouseStock.map(s => ({
-                    value: (s.location as any)?.id,
-                    label: (s.location as any)?.name,
-                    sublabel: `${s.quantity} in stock`,
-                  }))}
+                  options={warehouseStock.map(s => {
+                    const locName = (s.location as any)?.name ?? '—'
+                    const clientName = (s.allocated_client as any)?.name
+                    const desLabel = (s.designation ?? 'deployment').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                    const poolLabel = clientName
+                      ? `${locName} · ${clientName} · ${desLabel}`
+                      : `${locName} · Unallocated · ${desLabel}`
+                    return { value: s.id, label: poolLabel, sublabel: `${s.quantity} in stock` }
+                  })}
                   value={sourceWarehouseId}
                   onChange={v => { setSourceWarehouseId(v); setTransferQty(''); }}
                   placeholder="Select source…"

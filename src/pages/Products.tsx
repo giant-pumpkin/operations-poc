@@ -127,7 +127,7 @@ export default function Products() {
     } else {
       const { data } = await supabase
         .from('inv_warehouse_stock')
-        .select('*, product:inv_product_registry(name, sku), location:mock_cl_locations(name)')
+        .select('*, product:inv_product_registry(name, sku), location:mock_cl_locations(name), allocated_client:mock_cl_companies!inv_warehouse_stock_allocated_client_id_fkey(id, name)')
         .eq('product_id', product.id)
       setDetailStock((data as any) || [])
     }
@@ -393,17 +393,25 @@ export default function Products() {
                       <table className="w-full">
                         <thead>
                           <tr className="bg-neutral-100">
-                            <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Warehouse</th>
+                            <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Pool</th>
                             <th className="text-right px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Quantity</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {detailStock.map(s => (
-                            <tr key={s.id} className="border-t border-neutral-200">
-                              <td className="px-3 py-2 text-[12px] text-neutral-800">{(s as any).location?.name}</td>
-                              <td className="px-3 py-2 text-[12px] font-mono text-neutral-700 text-right">{s.quantity}</td>
-                            </tr>
-                          ))}
+                          {detailStock.map(s => {
+                            const locName = (s as any).location?.name ?? '—'
+                            const clientName = (s as any).allocated_client?.name
+                            const desLabel = (s.designation ?? 'deployment').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                            const poolLabel = clientName
+                              ? `${locName} · ${clientName} · ${desLabel}`
+                              : `${locName} · Unallocated · ${desLabel}`
+                            return (
+                              <tr key={s.id} className="border-t border-neutral-200">
+                                <td className="px-3 py-2 text-[12px] text-neutral-800">{poolLabel}</td>
+                                <td className="px-3 py-2 text-[12px] font-mono text-neutral-700 text-right">{s.quantity}</td>
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>

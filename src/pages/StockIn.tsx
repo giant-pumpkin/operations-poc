@@ -146,12 +146,16 @@ export default function StockIn() {
 
     setSubmitting(true)
     try {
-      const { data: existing } = await supabase
+      const clientId = allocatedClientId || null
+      let query = supabase
         .from('inv_warehouse_stock')
         .select('id, quantity')
         .eq('product_id', productId)
         .eq('location_id', warehouseId)
-        .maybeSingle()
+        .eq('designation', designation)
+      if (clientId) query = query.eq('allocated_client_id', clientId)
+      else query = query.is('allocated_client_id', null)
+      const { data: existing } = await query.maybeSingle()
 
       if (existing) {
         const { error } = await supabase
@@ -165,6 +169,8 @@ export default function StockIn() {
           .insert({
             product_id: productId,
             location_id: warehouseId,
+            allocated_client_id: clientId,
+            designation,
             quantity: qty,
           })
         if (error) throw error
@@ -315,17 +321,46 @@ export default function StockIn() {
               </div>
             </>
           ) : (
-            <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-1">Quantity</label>
-              <input
-                type="number"
-                min={1}
-                value={quantity}
-                onChange={e => setQuantity(e.target.value)}
-                placeholder="Enter quantity"
-                className={inputClass}
-              />
-            </div>
+            <>
+              {/* Allocate to client */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Allocate to Client <span className="text-neutral-400 font-normal">(optional)</span>
+                </label>
+                <SearchableSelect
+                  options={companies.map(c => ({ value: c.id, label: c.name }))}
+                  value={allocatedClientId}
+                  onChange={setAllocatedClientId}
+                  placeholder="Unallocated"
+                />
+              </div>
+
+              {/* Designation */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Designation
+                </label>
+                <SearchableSelect
+                  options={DESIGNATION_OPTIONS}
+                  value={designation}
+                  onChange={setDesignation}
+                  placeholder="Deployment"
+                />
+              </div>
+
+              {/* Quantity */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Quantity</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={quantity}
+                  onChange={e => setQuantity(e.target.value)}
+                  placeholder="Enter quantity"
+                  className={inputClass}
+                />
+              </div>
+            </>
           )}
 
           <MovementDateInput value={movementDate} onChange={setMovementDate} />

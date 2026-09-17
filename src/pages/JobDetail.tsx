@@ -400,12 +400,28 @@ export default function JobDetail() {
       })
       if (moveErr) throw moveErr
 
-      const { data: stock } = await supabase
+      const clientId = job.client_id
+      let stockQuery = supabase
         .from('inv_warehouse_stock')
         .select('id, quantity')
         .eq('product_id', entryJobItem.product_id)
         .eq('location_id', entryWarehouseId)
-        .maybeSingle()
+        .eq('designation', 'deployment')
+      if (clientId) stockQuery = stockQuery.eq('allocated_client_id', clientId)
+      else stockQuery = stockQuery.is('allocated_client_id', null)
+      let { data: stock } = await stockQuery.maybeSingle()
+
+      if (!stock && clientId) {
+        const { data: unalloc } = await supabase
+          .from('inv_warehouse_stock')
+          .select('id, quantity')
+          .eq('product_id', entryJobItem.product_id)
+          .eq('location_id', entryWarehouseId)
+          .eq('designation', 'deployment')
+          .is('allocated_client_id', null)
+          .maybeSingle()
+        stock = unalloc
+      }
 
       if (direction === 'outbound') {
         if (stock) {
@@ -415,7 +431,13 @@ export default function JobDetail() {
         if (stock) {
           await supabase.from('inv_warehouse_stock').update({ quantity: stock.quantity + qty, updated_at: now }).eq('id', stock.id)
         } else {
-          await supabase.from('inv_warehouse_stock').insert({ product_id: entryJobItem.product_id, location_id: entryWarehouseId, quantity: qty })
+          await supabase.from('inv_warehouse_stock').insert({
+            product_id: entryJobItem.product_id,
+            location_id: entryWarehouseId,
+            allocated_client_id: clientId || null,
+            designation: 'deployment',
+            quantity: qty,
+          })
         }
       }
 

@@ -59,10 +59,13 @@ export interface WarehouseStock {
   id: string
   product_id: string
   location_id: string
+  allocated_client_id: string | null
+  designation: Designation
   quantity: number
   updated_at: string
   product?: Product
   location?: Location
+  allocated_client?: Company
 }
 
 export interface StockMovement {
