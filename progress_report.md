@@ -330,3 +330,19 @@ Replaced the default Vite template README with a real project summary (what Conn
 - Transfer's "Select Items" dropdown already matched on both serial number and location under the hood (search filters on label + sublabel, and location is part of the sublabel) — updated the placeholder text to say so.
 - UX polish: clicking the dropdown trigger now morphs it directly into the search input (same position/size) instead of opening a second, redundant search box underneath the closed trigger. Applied to both single- and multi-select modes.
 - Verified live in the browser (typing "Apple Store" correctly filtered to the one matching item; the in-place input swap renders correctly).
+
+### Stock Overview — replace "Scheduled" with computed Planned / Free (next_steps.md Section 1, revised)
+
+Confirmed earlier this session (via live query) that no code path ever sets `inv_inventory_item.status = 'scheduled'` automatically — it's a dead status. `next_steps.md` was updated with a design decision to match: the stock view no longer shows a "Scheduled" column. Instead it computes:
+
+- **Planned** — sum of `(planned_quantity - fulfilled_quantity)` from open `job_items` (`direction = 'outbound'`, parent job status not in `completed`/`closed`/`cancelled`/`incomplete`) for that product × client, joined against the inventory pool
+- **Free** — Available − Planned (can go negative — over-committed — shown in red)
+
+Implemented in `src/pages/Stock.tsx`:
+- `REMAINING_STATUSES` replaces `DISPLAY_STATUSES`, dropping `scheduled`; Planned/Free are inserted right after the Available column
+- Planned/Free are a client-level commitment, not designation-level — every designation sub-pool for the same client shows the same client-wide Planned number (job_items has no designation dimension)
+- **Phantom pools:** a client can have planned job demand with zero inventory currently allocated to their pool (e.g. KFC had a tentative job planning 1x QM55C with no QM55C in KFC's pool yet) — added a synthetic pool row (`Available: 0`) so the commitment still shows, matching the FULL OUTER JOIN behavior described in the spec
+- Planned/Free columns only render on the "All Items" tab — they're not warehouse-scoped (job_items has no location), so showing them next to a warehouse-filtered Available count would be misleading
+- **Known limitation:** a product with planned job demand but *zero* inventory items anywhere (not even in another client's pool) won't get a product-level row at all, since product groups are still derived from existing inventory items. Not hit by current seed data; flagging for a future pass if it becomes a real scenario
+- **Bug found and fixed along the way:** the job_items query originally tried to embed `client:mock_cl_companies(name)` off `job_jobs`, which has two FKs to that table (`client_id` and `partner_id`) — PostgREST rejected the ambiguous embed and the whole query silently returned no data, so Planned showed 0 everywhere until fixed. Now uses the explicit `mock_cl_companies!job_jobs_client_id_fkey` hint.
+- Verified live in the browser: QM55C now shows Available 2 / Planned 1 / Free 1 (aggregate), with the KFC phantom pool correctly showing Free −1 in red; warehouse tabs correctly hide Planned/Free.

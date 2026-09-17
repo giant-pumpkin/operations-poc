@@ -36,6 +36,8 @@ interface PoolRow {
   label: string
   counts: StatusCounts
   total: number
+  planned: number
+  free: number
 }
 
 interface ProductGroup {
@@ -45,6 +47,8 @@ interface ProductGroup {
   counts: StatusCounts
   total: number
   pools: PoolRow[]
+  planned: number
+  free: number
 }
 
 interface WarehouseRow {
@@ -59,12 +63,15 @@ interface UntrackedGroup {
   warehouses: WarehouseRow[]
 }
 
-const DISPLAY_STATUSES: ItemStatus[] = ['available', 'scheduled', 'in_transit', 'installed', 'defect', 'in_repair']
+// 'scheduled' is not used as a stock-view column: no inventory item is ever automatically
+// set to it (see next_steps.md Section 1 design decision). The stock view instead computes
+// "Planned" from open job_items and "Free" = Available - Planned.
+const REMAINING_STATUSES: ItemStatus[] = ['in_transit', 'installed', 'defect', 'in_repair']
 const emptyCounts = (): StatusCounts => ({
   available: 0, scheduled: 0, installed: 0, in_transit: 0, defect: 0, in_repair: 0, written_off: 0,
 })
 
-function ExpandableRows({ pools, expanded }: { pools: PoolRow[]; expanded: boolean }) {
+function ExpandableRows({ pools, expanded, showPlanned }: { pools: PoolRow[]; expanded: boolean; showPlanned: boolean }) {
   const ref = useRef<HTMLTableSectionElement>(null)
   const [height, setHeight] = useState(0)
 
@@ -90,7 +97,28 @@ function ExpandableRows({ pools, expanded }: { pools: PoolRow[]; expanded: boole
             {pool.label}
           </td>
           <td className="px-3 py-1.5" />
-          {DISPLAY_STATUSES.map(s => (
+          <td className="px-3 py-1.5 font-mono text-[12px] text-center">
+            {pool.counts.available > 0 ? (
+              <span className="text-neutral-700">{pool.counts.available}</span>
+            ) : (
+              <span className="text-neutral-300">0</span>
+            )}
+          </td>
+          {showPlanned && (
+            <>
+              <td className="px-3 py-1.5 font-mono text-[12px] text-center">
+                {pool.planned > 0 ? (
+                  <span className="text-neutral-700">{pool.planned}</span>
+                ) : (
+                  <span className="text-neutral-300">0</span>
+                )}
+              </td>
+              <td className={`px-3 py-1.5 font-mono text-[12px] text-center ${pool.free < 0 ? 'text-red-600 font-semibold' : 'text-neutral-700'}`}>
+                {pool.free}
+              </td>
+            </>
+          )}
+          {REMAINING_STATUSES.map(s => (
             <td key={s} className="px-3 py-1.5 font-mono text-[12px] text-center">
               {pool.counts[s] > 0 ? (
                 <span className="text-neutral-700">{pool.counts[s]}</span>
@@ -140,6 +168,7 @@ export default function Stock() {
   const [trackedItems, setTrackedItems] = useState<TrackedItem[]>([])
   const [untracked, setUntracked] = useState<UntrackedRow[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [plannedByProductClient, setPlannedByProductClient] = useState<Map<string, { qty: number; clientId: string; clientName: string }>>(new Map())
   const [activeTab, setActiveTab] = useState('')
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [expandedQtyProducts, setExpandedQtyProducts] = useState<Set<string>>(new Set())
@@ -149,7 +178,7 @@ export default function Stock() {
     async function load() {
       setLoading(true)
 
-      const [itemsRes, stockRes, locRes] = await Promise.all([
+      const [itemsRes, stockRes, locRes, jobItemsRes] = await Promise.all([
         supabase
           .from('inv_inventory_item')
           .select('id, status, location_id, designation, allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id, name), product:inv_product_registry(id, name, sku)')
@@ -161,6 +190,10 @@ export default function Stock() {
           .from('mock_cl_locations')
           .select('id, name')
           .eq('type', 'warehouse'),
+        supabase
+          .from('job_items')
+          .select('product_id, planned_quantity, fulfilled_quantity, direction, job:job_jobs(client_id, status, client:mock_cl_companies!job_jobs_client_id_fkey(name))')
+          .eq('direction', 'outbound'),
       ])
 
       if (itemsRes.data) {
@@ -196,6 +229,25 @@ export default function Stock() {
         setWarehouses(locRes.data)
       }
 
+      if (jobItemsRes.data) {
+        const OPEN_JOB_STATUSES = new Set(['completed', 'closed', 'cancelled', 'incomplete'])
+        const planned = new Map<string, { qty: number; clientId: string; clientName: string }>()
+        for (const ji of jobItemsRes.data as any[]) {
+          const job = ji.job
+          if (!job || OPEN_JOB_STATUSES.has(job.status)) continue
+          const remaining = ji.planned_quantity - ji.fulfilled_quantity
+          if (remaining <= 0) continue
+          const key = `${ji.product_id}__${job.client_id}`
+          const existing = planned.get(key)
+          planned.set(key, {
+            qty: (existing?.qty ?? 0) + remaining,
+            clientId: job.client_id,
+            clientName: job.client?.name ?? 'Unknown',
+          })
+        }
+        setPlannedByProductClient(planned)
+      }
+
       setLoading(false)
     }
     load()
@@ -218,6 +270,8 @@ export default function Stock() {
           counts: emptyCounts(),
           total: 0,
           pools: [],
+          planned: 0,
+          free: 0,
         }
         products.set(item.productId, group)
       }
@@ -227,6 +281,7 @@ export default function Stock() {
 
     for (const group of products.values()) {
       const poolMap = new Map<string, PoolRow>()
+      const poolClientIds = new Map<string, string | null>()
       const groupItems = items.filter(i => i.productId === group.productId)
 
       for (const item of groupItems) {
@@ -235,12 +290,48 @@ export default function Stock() {
         const label = `${item.clientName} · ${designationLabel}`
         let pool = poolMap.get(poolKey)
         if (!pool) {
-          pool = { label, counts: emptyCounts(), total: 0 }
+          pool = { label, counts: emptyCounts(), total: 0, planned: 0, free: 0 }
           poolMap.set(poolKey, pool)
+          poolClientIds.set(poolKey, item.clientId)
         }
         pool.counts[item.status]++
         pool.total++
       }
+
+      // Planned/Free are a client-level commitment, not tied to designation — every
+      // designation pool for the same client shows the same client-wide Planned total.
+      const distinctClientIds = new Set<string>()
+      for (const [poolKey, pool] of poolMap) {
+        const clientId = poolClientIds.get(poolKey)
+        const planned = clientId ? (plannedByProductClient.get(`${group.productId}__${clientId}`)?.qty ?? 0) : 0
+        pool.planned = planned
+        pool.free = pool.counts.available - planned
+        if (clientId) distinctClientIds.add(clientId)
+      }
+
+      // Phantom pools: a client can have planned job demand for this product with zero
+      // inventory allocated to their pool yet — still show the commitment (Available: 0).
+      if (activeTab === '') {
+        for (const [key, entry] of plannedByProductClient) {
+          if (!key.startsWith(`${group.productId}__`)) continue
+          if (distinctClientIds.has(entry.clientId)) continue
+          const phantomKey = `${entry.clientId}__deployment`
+          poolMap.set(phantomKey, {
+            label: `${entry.clientName} · Deployment`,
+            counts: emptyCounts(),
+            total: 0,
+            planned: entry.qty,
+            free: -entry.qty,
+          })
+          distinctClientIds.add(entry.clientId)
+        }
+      }
+
+      group.planned = Array.from(distinctClientIds).reduce(
+        (sum, clientId) => sum + (plannedByProductClient.get(`${group.productId}__${clientId}`)?.qty ?? 0),
+        0
+      )
+      group.free = group.counts.available - group.planned
 
       group.pools = Array.from(poolMap.values()).sort((a, b) => a.label.localeCompare(b.label))
     }
@@ -248,7 +339,7 @@ export default function Stock() {
     return Array.from(products.values()).sort((a, b) =>
       a.productName.localeCompare(b.productName)
     )
-  }, [trackedItems, activeTab])
+  }, [trackedItems, activeTab, plannedByProductClient])
 
   const untrackedGroups = useMemo(() => {
     const filtered = activeTab
@@ -337,7 +428,14 @@ export default function Stock() {
                 <tr className="bg-neutral-800">
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em]">Product</th>
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em]">SKU</th>
-                  {DISPLAY_STATUSES.map(s => (
+                  <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">available</th>
+                  {activeTab === '' && (
+                    <>
+                      <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">planned</th>
+                      <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">free</th>
+                    </>
+                  )}
+                  {REMAINING_STATUSES.map(s => (
                     <th key={s} className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">
                       {s.replace(/_/g, ' ')}
                     </th>
@@ -367,7 +465,28 @@ export default function Stock() {
                           </span>
                         </td>
                         <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">{group.sku}</td>
-                        {DISPLAY_STATUSES.map(s => (
+                        <td className="px-3 py-2 font-mono text-[12px] text-center">
+                          {group.counts.available > 0 ? (
+                            <span className="text-neutral-800 font-medium">{group.counts.available}</span>
+                          ) : (
+                            <span className="text-neutral-300">0</span>
+                          )}
+                        </td>
+                        {activeTab === '' && (
+                          <>
+                            <td className="px-3 py-2 font-mono text-[12px] text-center">
+                              {group.planned > 0 ? (
+                                <span className="text-neutral-800 font-medium">{group.planned}</span>
+                              ) : (
+                                <span className="text-neutral-300">0</span>
+                              )}
+                            </td>
+                            <td className={`px-3 py-2 font-mono text-[12px] text-center font-medium ${group.free < 0 ? 'text-red-600' : 'text-neutral-800'}`}>
+                              {group.free}
+                            </td>
+                          </>
+                        )}
+                        {REMAINING_STATUSES.map(s => (
                           <td key={s} className="px-3 py-2 font-mono text-[12px] text-center">
                             {group.counts[s] > 0 ? (
                               <span className="text-neutral-800 font-medium">{group.counts[s]}</span>
@@ -379,7 +498,7 @@ export default function Stock() {
                         <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-semibold">{group.total}</td>
                       </tr>
                     </tbody>
-                    <ExpandableRows pools={group.pools} expanded={isExpanded} />
+                    <ExpandableRows pools={group.pools} expanded={isExpanded} showPlanned={activeTab === ''} />
                   </Fragment>
                 )
               })}

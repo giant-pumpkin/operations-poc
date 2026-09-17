@@ -44,37 +44,90 @@ The following changes are live on the sandbox Supabase (`odpdnucjvgingrrwaaiv`):
 
 The stock view currently shows inventory by product. It needs to show allocation pools.
 
+**Design Decision: "Planned" is computed from jobs, not stored on inventory items**
+
+`scheduled` is NOT a status on `inv_inventory_item`. Nobody at GP picks specific serial numbers before installation — the installer grabs from the client pool and reports afterwards. So no individual item is ever "scheduled."
+
+Instead, the stock view computes a "Planned" count by joining unfulfilled `job_items` against the inventory pool. This tells you how many items are earmarked for upcoming jobs without pretending you know which specific serials will be used.
+
+The key metric is **Free** = Available − Planned. This answers: "Can we commit to 10 more QM55C for KFC?"
+
 **Revised stock view for tracked items:**
 
-| Product | Client Pool | Available | Scheduled | Installed | Defect | Total |
-| ------- | ----------- | --------- | --------- | --------- | ------ | ----- |
-| QM55C   | KFC         | 2         | 0         | 1         | 0      | 3     |
-| QM43C   | Apple TH    | 1         | 0         | 0         | 0      | 1     |
-| QM43C   | Unallocated | 0         | 0         | 0         | 0      | 1\*   |
+| Product | Client Pool | Available | Planned | Free | In Transit | Installed | Defect | In Repair | Total |
+| ------- | ----------- | --------- | ------- | ---- | ---------- | --------- | ------ | --------- | ----- |
+| QM55C   | KFC         | 42        | 8       | 34   | 2          | 18        | 0      | 0         | 62    |
+| QM55C   | BJ Malaysia | 10        | 0       | 10   | 0          | 5         | 0      | 0         | 15    |
+| QM55C   | Unallocated | 3         | 0       | 3    | 0          | 0         | 0      | 0         | 3     |
 
-\*in_transit items still show in their pool (or Unallocated if no pool)
+**How "Planned" is calculated:**
+
+Planned = the sum of `(planned_quantity - fulfilled_quantity)` from `job_items` where:
+
+- `job_items.direction = 'outbound'` (items going TO a site)
+- The parent `job_jobs.status` is NOT `completed`, `closed`, `cancelled`, or `incomplete`
+- The parent `job_jobs.client_id` matches the inventory pool's `allocated_client_id`
+- `job_items.product_id` matches the inventory pool's `product_id`
+
+In other words: how many of this product does this client have on active jobs that haven't been fulfilled yet?
+
+**Free** = Available − Planned. Can go negative if more are planned than available (over-committed). Display negative values in red.
 
 **Query approach:**
 
 ```sql
+WITH inventory_counts AS (
+  SELECT
+    ii.product_id,
+    ii.allocated_client_id,
+    COUNT(*) FILTER (WHERE ii.status = 'available') AS available,
+    COUNT(*) FILTER (WHERE ii.status = 'in_transit') AS in_transit,
+    COUNT(*) FILTER (WHERE ii.status = 'installed') AS installed,
+    COUNT(*) FILTER (WHERE ii.status = 'defect') AS defect,
+    COUNT(*) FILTER (WHERE ii.status = 'in_repair') AS in_repair,
+    COUNT(*) AS total
+  FROM inv_inventory_item ii
+  WHERE ii.status != 'written_off'
+  GROUP BY ii.product_id, ii.allocated_client_id
+),
+planned_counts AS (
+  SELECT
+    ji.product_id,
+    jj.client_id AS allocated_client_id,
+    SUM(ji.planned_quantity - ji.fulfilled_quantity) AS planned
+  FROM job_items ji
+  JOIN job_jobs jj ON ji.job_id = jj.id
+  WHERE ji.direction = 'outbound'
+    AND jj.status NOT IN ('completed', 'closed', 'cancelled', 'incomplete')
+    AND ji.fulfilled_quantity < ji.planned_quantity
+  GROUP BY ji.product_id, jj.client_id
+)
 SELECT
   pr.name AS product_name,
   pr.sku,
   COALESCE(c.name, 'Unallocated') AS client_pool,
-  COUNT(*) FILTER (WHERE ii.status = 'available') AS available,
-  COUNT(*) FILTER (WHERE ii.status = 'scheduled') AS scheduled,
-  COUNT(*) FILTER (WHERE ii.status = 'installed') AS installed,
-  COUNT(*) FILTER (WHERE ii.status = 'defect') AS defect,
-  COUNT(*) FILTER (WHERE ii.status = 'in_repair') AS in_repair,
-  COUNT(*) AS total
-FROM inv_inventory_item ii
-JOIN inv_product_registry pr ON ii.product_id = pr.id
-LEFT JOIN mock_cl_companies c ON ii.allocated_client_id = c.id
-GROUP BY pr.name, pr.sku, c.name
+  COALESCE(ic.available, 0) AS available,
+  COALESCE(pc.planned, 0) AS planned,
+  COALESCE(ic.available, 0) - COALESCE(pc.planned, 0) AS free,
+  COALESCE(ic.in_transit, 0) AS in_transit,
+  COALESCE(ic.installed, 0) AS installed,
+  COALESCE(ic.defect, 0) AS defect,
+  COALESCE(ic.in_repair, 0) AS in_repair,
+  COALESCE(ic.total, 0) AS total
+FROM inventory_counts ic
+FULL OUTER JOIN planned_counts pc
+  ON ic.product_id = pc.product_id
+  AND ic.allocated_client_id = pc.allocated_client_id
+JOIN inv_product_registry pr ON COALESCE(ic.product_id, pc.product_id) = pr.id
+LEFT JOIN mock_cl_companies c ON COALESCE(ic.allocated_client_id, pc.allocated_client_id) = c.id
 ORDER BY pr.name, c.name NULLS LAST;
 ```
 
-**Untracked items stock view** stays the same (no pool allocation for quantity-only items).
+**Why FULL OUTER JOIN:** A client might have planned jobs for a product but zero inventory items in that pool yet (all still unallocated). The planned count should still show.
+
+**Untracked items stock view** stays the same (no pool allocation for quantity-only items). Planned counts for quantity-only items can be added later using the same join pattern if needed.
+
+**Status enum on `inv_inventory_item`:** `scheduled` remains as a valid status in the DB constraint for backward compatibility, but nothing in the application should ever set it automatically. It's effectively dead. The stock view does NOT display a "Scheduled" column — it displays "Planned" (computed from jobs) and "Free" (available minus planned) instead.
 
 ### 2. Update Inventory Detail — Show New Fields (Priority: HIGH)
 
@@ -198,27 +251,7 @@ New column `designation` on `inv_inventory_item` — values: `deployment` (defau
 - Keep two levels, not three. Collapsed: product-level totals. Expanded: one row per client × designation combo
 - Row format: "KFC Thailand · Deployment", "KFC Thailand · Spare"
 - Hide combos that have zero items (exclude `written_off` as before)
-- Query approach:
-
-```sql
-SELECT
-  pr.name AS product_name,
-  pr.sku,
-  COALESCE(c.name, 'Unallocated') AS client_pool,
-  ii.designation,
-  COUNT(*) FILTER (WHERE ii.status = 'available') AS available,
-  COUNT(*) FILTER (WHERE ii.status = 'scheduled') AS scheduled,
-  COUNT(*) FILTER (WHERE ii.status = 'installed') AS installed,
-  COUNT(*) FILTER (WHERE ii.status = 'defect') AS defect,
-  COUNT(*) FILTER (WHERE ii.status = 'in_repair') AS in_repair,
-  COUNT(*) AS total
-FROM inv_inventory_item ii
-JOIN inv_product_registry pr ON ii.product_id = pr.id
-LEFT JOIN mock_cl_companies c ON ii.allocated_client_id = c.id
-WHERE ii.status != 'written_off'
-GROUP BY pr.name, pr.sku, c.name, ii.designation
-ORDER BY pr.name, c.name NULLS LAST, ii.designation;
-```
+- Query approach: same CTE pattern as Section 1 stock view (inventory_counts + planned_counts), but add `ii.designation` to the GROUP BY. The "Planned" and "Free" columns use the same job_items join logic. See Section 1 query for the full pattern — the only change is adding `ii.designation` as a grouping dimension.
 
 **8d. Stock-in page**
 
@@ -322,12 +355,12 @@ Sidebar:
 
 Valid status transitions for tracked items:
 
+**Note:** `scheduled` is NOT used as an inventory status. "Planned" counts are computed from `job_items`, not stored on individual items. See Section 1 stock view design decision.
+
 ```
-available → scheduled        (allocated to a job)
-available → in_transit       (being shipped)
+available → in_transit       (being shipped / picked for a job)
+available → installed        (direct install, no transit step)
 available → written_off      (lost, scrapped, or beyond repair)
-scheduled → in_transit       (picked and shipped)
-scheduled → available        (job cancelled, released back)
 in_transit → installed       (installation confirmed)
 in_transit → available       (returned to warehouse before install)
 installed → defect           (failed at client site)
