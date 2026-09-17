@@ -366,3 +366,60 @@ Implemented in `src/pages/Stock.tsx`:
 - Verified live in the browser: edited JOB-00000002's outbound QM55C planned quantity 1→3 and confirmed the "Item updated" toast and table update, then reverted it back to 1 to keep the seed data matching next_steps.md's Test Scenario 11; confirmed the delete icon is disabled with the correct tooltip on JOB-00000001's fulfilled QM55C item.
 
 **Bug fix (user-reported):** entering edit mode on a job item overflowed the whole row past the card's rounded border. Root cause: the table used `table-layout: auto` with no column-width constraints, so a long product name inside the edit-mode `SearchableSelect` forced its intrinsic (nowrap) content width onto the table, pushing it wider than the container — `truncate` CSS doesn't reduce a cell's min-content width contribution in auto layout, so nothing actually clipped. Fixed by switching the table to `table-layout: fixed` with an explicit `<colgroup>`, so column widths are locked regardless of content and truncation now works as intended. Verified live on JOB-00000006 (product name "85 inch Samsung QM85C").
+
+---
+
+## Progress Report — Session 6 (2026-09-17)
+
+### Stock Overview — ERP terminology refinement
+
+After reviewing the stock view columns (Available / Planned / Free), decided the "Free" column was confusing (negative Free values like "−1" were hard to interpret) and the terminology wasn't clean ERP practice. Changes:
+
+- **Renamed** "Planned" → **"Committed"** — standard mid-market ERP term for quantities spoken for by open work orders
+- **Dropped** the "Free" column entirely — users can compare Available vs Committed visually
+- **Red highlight** on Available when `Available < Committed` — draws the eye to overcommitted pools without needing a separate column
+- DB status `available` unchanged (standard Odoo/mid-market ERP term)
+- Shipped as PR #1 (`stock-column-rename` branch → main), the project's first PR
+
+### Git workflow — first PR
+
+This was the project's first pull request. Workflow used:
+1. Created feature branch `stock-column-rename` off main
+2. Committed the rename changes on the branch
+3. Pushed to `origin/stock-column-rename`
+4. Created PR via `gh pr create`
+5. User reviewed and merged on GitHub
+6. Cleaned up: deleted remote branch, switched local to main, pulled, deleted local branch
+
+### Browser testing — Jobs domain (Test Scenarios 10–13)
+
+All four test scenarios from `next_steps.md` were browser-tested and passed:
+
+| Scenario | Description | Result | Notes |
+|----------|-------------|--------|-------|
+| 10 | Full installation lifecycle | PASSED | JOB-00000001: tentative → scheduled → in_progress → completed → closed; SD Card quantity fulfillment worked correctly |
+| 11 | Reactive maintenance swap | PASSED | JOB-00000002: outbound serial installed at site, inbound defective serial returned to warehouse with "defect" status |
+| 12 | Partial installation | PASSED | JOB-00000007: 1/3 fulfilled → Mark Incomplete → Resume → fulfill remaining 2 → Complete → Close |
+| 13 | No-inventory job | PASSED | JOB-00000003: survey job with no items, full lifecycle through to closed |
+
+**Issues found during testing:**
+
+1. **Future movement date silently fails** — the `handleSerialEntry` function rejects dates where `movementTime > new Date()` with a toast, but the toast wasn't visible when the form was scrolled down. Not a bug per se (validation works correctly), but the toast can be missed if the user scrolled to see the Link Serial button. Low priority UX note.
+
+2. **Limited seed data** — Scenario 12 originally called for 3x QM55C but only 1 was available in the KFC pool (others were installed/defective from earlier scenarios). Resolved by stocking in 2 new serials (`QM55C-NEW-001`, `QM55C-NEW-002`) via the Stock In page mid-test. The partial flow (Partial status, Mark Incomplete, Resume) all worked correctly.
+
+### Commits (session 6)
+```
+119e122 Rename stock columns: Planned → Committed, drop Free column
+275455b Merge pull request #1 from giant-pumpkin/stock-column-rename
+```
+
+### What's Left
+
+- Reporting / dashboards
+- Deployment greenlight dashboard (JL2 from next_steps.md)
+- Sections 3, 4, 5 of next_steps.md
+- Product image upload
+- Bulk import
+- User auth + role-based access
+- Ownership field UI — deferred until the Airtable migration (Section 12)
