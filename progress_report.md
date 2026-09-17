@@ -353,3 +353,16 @@ Implemented in `src/pages/Stock.tsx`:
 - Job Type, Client, Location Type, Location, and Partner are now all required fields (`*` on labels). Partner was previously optional; it's now mandatory in the UI even though `job_jobs.partner_id` stays nullable in the DB
 - Replaced the old toast-on-click validation with the same `disabledReason` + dark hover-tooltip pattern used on Transfer/Return/Adjustment (see [[feedback-no-lazy-ui]]) — the Create button is disabled until every required field is filled, and hovering always explains the next unmet requirement
 - Verified live in the browser: button stays disabled and tooltips walk through each missing field in order; Location correctly stays locked until a Location Type is chosen.
+
+### Job Items — edit and delete
+
+- Job Items table on `/jobs/:id` now has a pencil (edit) and trash (delete) icon per row
+- Edit turns the row into an inline form (same pattern as elsewhere): Product, Direction, and Planned quantity editable
+  - If the item has zero `fulfilled_quantity`, everything is editable
+  - If it has any fulfillment already recorded, Product and Direction lock (changing them would misrepresent movements already made) — only Planned quantity stays editable, and it can't be reduced below the fulfilled count
+  - Saving recomputes `job_items.status` (`planned`/`partial`/`fulfilled`) from the new planned/fulfilled numbers
+- Delete removes the job item outright, only allowed when `fulfilled_quantity === 0` — the trash icon is disabled with a "Can't remove — N already fulfilled" tooltip otherwise (same disabled+tooltip pattern as everywhere else)
+- No job-status gating added (matches the existing unrestricted "Add Item" behavior — editing/deleting isn't blocked by job status, only by whether fulfillment already happened)
+- Verified live in the browser: edited JOB-00000002's outbound QM55C planned quantity 1→3 and confirmed the "Item updated" toast and table update, then reverted it back to 1 to keep the seed data matching next_steps.md's Test Scenario 11; confirmed the delete icon is disabled with the correct tooltip on JOB-00000001's fulfilled QM55C item.
+
+**Bug fix (user-reported):** entering edit mode on a job item overflowed the whole row past the card's rounded border. Root cause: the table used `table-layout: auto` with no column-width constraints, so a long product name inside the edit-mode `SearchableSelect` forced its intrinsic (nowrap) content width onto the table, pushing it wider than the container — `truncate` CSS doesn't reduce a cell's min-content width contribution in auto layout, so nothing actually clipped. Fixed by switching the table to `table-layout: fixed` with an explicit `<colgroup>`, so column widths are locked regardless of content and truncation now works as intended. Verified live on JOB-00000006 (product name "85 inch Samsung QM85C").
