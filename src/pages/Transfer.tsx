@@ -28,15 +28,19 @@ function sourceType(item: InventoryItem): Location['type'] | undefined {
   return (item.location as any)?.type
 }
 
-function movementTypeFor(item: InventoryItem): MovementType {
-  return sourceType(item) === 'client_site' ? 'return' : 'transfer'
+function movementTypeFor(item: InventoryItem, destType: Location['type'] | undefined): MovementType {
+  const src = sourceType(item)
+  if (src === 'client_site' && destType !== 'client_site') return 'return'
+  return 'transfer'
 }
 
 function newStatusFor(item: InventoryItem, destType: Location['type'] | undefined, reason: string): ItemStatus {
   const src = sourceType(item)
+  if (src === 'client_site' && destType === 'client_site') return 'installed'
   if (src === 'client_site') {
     return reason === 'defect' ? 'defect' : 'available'
   }
+  if (destType === 'client_site') return 'installed'
   if (destType === 'repair_center') return 'in_repair'
   if (src === 'repair_center' && destType === 'warehouse') return 'available'
   return item.status
@@ -165,7 +169,7 @@ export default function Transfer() {
         const dest = destinations.find(d => d.id === destinationId)!
 
         for (const item of selectedItems) {
-          const movementType = movementTypeFor(item)
+          const movementType = movementTypeFor(item, dest.type)
           const newStatus = newStatusFor(item, dest.type, reason)
           const defaultNote = movementType === 'return' ? `Return reason: ${reason.replace(/_/g, ' ')}` : null
 
