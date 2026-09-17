@@ -480,6 +480,8 @@ Added "Reallocate" action to the Adjustment page's Quantity Items tab, allowing 
 | `Adjustment.tsx` | Target Client dropdown, Target Designation dropdown, Quantity to Reallocate field |
 | `Adjustment.tsx` | `handleReallocateSubmit()` decrements source pool, finds/creates target pool, logs movement |
 | `Adjustment.tsx` | Fixed companies query: `.eq('status', 'client')` (was `'active'`) |
+| `Adjustment.tsx` | Serial Items: multi-select dropdown, Reallocate action, `allocated_client` join |
+| `MultiSelectInfoTable.tsx` | Reusable table component showing Serial, Product, Client, Status, Location columns |
 
 ### What's Left
 

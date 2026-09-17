@@ -4,15 +4,17 @@ import type { Product, Location, Company, InventoryItem, WarehouseStock, ItemSta
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
-import { StatusBadge } from '../components/StatusBadge'
+import MultiSelectInfoTable from '../components/MultiSelectInfoTable'
 import MovementDateInput from '../components/MovementDateInput'
 
 type Mode = 'tracked' | 'untracked'
 type UntrackedAction = 'adjust' | 'reallocate'
+type TrackedAction = 'write_off' | 'status_change' | 'reallocate'
 
 const TRACKED_ACTIONS = [
   { value: 'write_off', label: 'Write Off — lost, stolen, or damaged beyond repair' },
   { value: 'status_change', label: 'Status Change — manually set item status' },
+  { value: 'reallocate', label: 'Reallocate — assign to a different client' },
 ]
 
 const UNTRACKED_ACTIONS = [
@@ -42,12 +44,15 @@ export default function Adjustment() {
 
   // tracked
   const [allItems, setAllItems] = useState<InventoryItem[]>([])
-  const [selectedItemId, setSelectedItemId] = useState('')
-  const [action, setAction] = useState('')
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([])
+  const [action, setAction] = useState<TrackedAction | ''>('')
   const [newStatus, setNewStatus] = useState('')
   const [reason, setReason] = useState('')
   const [movementDateTracked, setMovementDateTracked] = useState('')
   const [submittingTracked, setSubmittingTracked] = useState(false)
+  // tracked reallocate
+  const [trackedTargetClientId, setTrackedTargetClientId] = useState('')
+  const [trackedTargetDesignation, setTrackedTargetDesignation] = useState('deployment')
 
   // untracked
   const [qtyProducts, setQtyProducts] = useState<Product[]>([])
@@ -73,11 +78,13 @@ export default function Adjustment() {
   }, [])
 
   useEffect(() => {
-    setSelectedItemId('')
+    setSelectedItemIds([])
     setAction('')
     setNewStatus('')
     setReason('')
     setMovementDateTracked('')
+    setTrackedTargetClientId('')
+    setTrackedTargetDesignation('deployment')
     setSelectedProductId('')
     setSelectedWarehouseId('')
     setSelectedPoolId('')
@@ -122,7 +129,7 @@ export default function Adjustment() {
     const [itemsRes, prodsRes, locsRes, companiesRes] = await Promise.all([
       supabase
         .from('inv_inventory_item')
-        .select('*, product:inv_product_registry(id,name,sku), location:mock_cl_locations(id,name)')
+        .select('*, product:inv_product_registry(id,name,sku), location:mock_cl_locations(id,name), allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id,name)')
         .neq('status', 'written_off')
         .order('serial_number'),
       supabase.from('inv_product_registry').select('*').eq('tracking_type', 'quantity_only').eq('active', true).order('name'),
@@ -135,16 +142,19 @@ export default function Adjustment() {
     if (companiesRes.data) setCompanies(companiesRes.data)
   }
 
-  const selectedItem = allItems.find(i => i.id === selectedItemId) ?? null
+  const selectedItems = allItems.filter(i => selectedItemIds.includes(i.id))
 
   async function handleTrackedSubmit() {
-    if (!selectedItem || !action || !reason.trim() || !movementDateTracked) {
+    if (selectedItems.length === 0 || !action || !reason.trim() || !movementDateTracked) {
       toast('error', 'Please fill in all fields')
       return
     }
     if (action === 'status_change' && !newStatus) {
       toast('error', 'Please select a new status')
       return
+    }
+    if (action === 'reallocate') {
+      return handleTrackedReallocate()
     }
     const movementTime = new Date(movementDateTracked)
     if (movementTime > new Date()) {
@@ -157,52 +167,57 @@ export default function Adjustment() {
       const now = new Date().toISOString()
       const moveTime = movementTime.toISOString()
 
-      if (action === 'write_off') {
-        const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
-          product_id: selectedItem.product_id,
-          inventory_item_id: selectedItem.id,
-          from_location: selectedItem.location_id,
-          to_location: null,
-          performed_by: BOSS_PROFILE_ID,
-          movement_type: 'adjustment',
-          quantity: 1,
-          movement_time: moveTime,
-          notes: `Write-off: ${reason.trim()}`,
-        })
-        if (moveErr) throw moveErr
+      for (const item of selectedItems) {
+        if (action === 'write_off') {
+          const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
+            product_id: item.product_id,
+            inventory_item_id: item.id,
+            from_location: item.location_id,
+            to_location: null,
+            performed_by: BOSS_PROFILE_ID,
+            movement_type: 'adjustment',
+            quantity: 1,
+            movement_time: moveTime,
+            notes: `Write-off: ${reason.trim()}`,
+          })
+          if (moveErr) throw moveErr
 
-        const { error: updateErr } = await supabase
-          .from('inv_inventory_item')
-          .update({ status: 'written_off', location_id: null, updated_at: now })
-          .eq('id', selectedItem.id)
-        if (updateErr) throw updateErr
+          const { error: updateErr } = await supabase
+            .from('inv_inventory_item')
+            .update({ status: 'written_off', location_id: null, updated_at: now })
+            .eq('id', item.id)
+          if (updateErr) throw updateErr
+        } else if (action === 'status_change') {
+          const oldStatus = item.status
+          const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
+            product_id: item.product_id,
+            inventory_item_id: item.id,
+            from_location: null,
+            to_location: null,
+            performed_by: BOSS_PROFILE_ID,
+            movement_type: 'adjustment',
+            quantity: 1,
+            movement_time: moveTime,
+            notes: `Status change (${oldStatus} → ${newStatus}): ${reason.trim()}`,
+          })
+          if (moveErr) throw moveErr
 
-        toast('success', `${selectedItem.serial_number} written off`)
-      } else {
-        const oldStatus = selectedItem.status
-        const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
-          product_id: selectedItem.product_id,
-          inventory_item_id: selectedItem.id,
-          from_location: null,
-          to_location: null,
-          performed_by: BOSS_PROFILE_ID,
-          movement_type: 'adjustment',
-          quantity: 1,
-          movement_time: moveTime,
-          notes: `Status change (${oldStatus} → ${newStatus}): ${reason.trim()}`,
-        })
-        if (moveErr) throw moveErr
-
-        const { error: updateErr } = await supabase
-          .from('inv_inventory_item')
-          .update({ status: newStatus, updated_at: now })
-          .eq('id', selectedItem.id)
-        if (updateErr) throw updateErr
-
-        toast('success', `${selectedItem.serial_number} status changed to ${newStatus}`)
+          const { error: updateErr } = await supabase
+            .from('inv_inventory_item')
+            .update({ status: newStatus, updated_at: now })
+            .eq('id', item.id)
+          if (updateErr) throw updateErr
+        }
       }
 
-      setSelectedItemId('')
+      const count = selectedItems.length
+      if (action === 'write_off') {
+        toast('success', `${count} item${count > 1 ? 's' : ''} written off`)
+      } else {
+        toast('success', `${count} item${count > 1 ? 's' : ''} status changed to ${newStatus}`)
+      }
+
+      setSelectedItemIds([])
       setAction('')
       setNewStatus('')
       setReason('')
@@ -210,6 +225,77 @@ export default function Adjustment() {
       loadData()
     } catch (err: any) {
       toast('error', err.message || 'Adjustment failed')
+    } finally {
+      setSubmittingTracked(false)
+    }
+  }
+
+  async function handleTrackedReallocate() {
+    if (selectedItems.length === 0 || !reason.trim() || !movementDateTracked) {
+      toast('error', 'Please fill in all fields')
+      return
+    }
+    const movementTime = new Date(movementDateTracked)
+    if (movementTime > new Date()) {
+      toast('error', 'Movement date cannot be in the future.')
+      return
+    }
+
+    const destClientId = trackedTargetClientId || null
+    const destDesignation = trackedTargetDesignation
+
+    const unchanged = selectedItems.every(item => {
+      const curClient = (item as any).allocated_client_id ?? null
+      const curDesignation = (item as any).designation ?? 'deployment'
+      return curClient === destClientId && curDesignation === destDesignation
+    })
+    if (unchanged) {
+      toast('warning', 'All selected items already belong to the target pool')
+      return
+    }
+
+    setSubmittingTracked(true)
+    try {
+      const now = new Date().toISOString()
+      const moveTime = movementTime.toISOString()
+      let count = 0
+
+      for (const item of selectedItems) {
+        const curClient = (item as any).allocated_client_id ?? null
+        const curDesignation = (item as any).designation ?? 'deployment'
+        if (curClient === destClientId && curDesignation === destDesignation) continue
+
+        const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
+          product_id: item.product_id,
+          inventory_item_id: item.id,
+          from_location: null,
+          to_location: null,
+          performed_by: BOSS_PROFILE_ID,
+          movement_type: 'adjustment',
+          quantity: 1,
+          movement_time: moveTime,
+          notes: `Reallocation: ${reason.trim()}`,
+        })
+        if (moveErr) throw moveErr
+
+        const { error: updateErr } = await supabase
+          .from('inv_inventory_item')
+          .update({ allocated_client_id: destClientId, designation: destDesignation, updated_at: now })
+          .eq('id', item.id)
+        if (updateErr) throw updateErr
+        count++
+      }
+
+      toast('success', `${count} item${count > 1 ? 's' : ''} reallocated`)
+      setSelectedItemIds([])
+      setAction('')
+      setReason('')
+      setMovementDateTracked('')
+      setTrackedTargetClientId('')
+      setTrackedTargetDesignation('deployment')
+      loadData()
+    } catch (err: any) {
+      toast('error', err.message || 'Reallocation failed')
     } finally {
       setSubmittingTracked(false)
     }
@@ -397,38 +483,25 @@ export default function Adjustment() {
       <div className="bg-neutral-0 border border-neutral-200 rounded-xl p-6 space-y-5">
         {mode === 'tracked' ? (
           <>
-            {/* Select item */}
+            {/* Select items (multi) */}
             <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-1">Item</label>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                Items {selectedItems.length > 0 && <span className="text-neutral-400 font-normal">({selectedItems.length} selected)</span>}
+              </label>
               <SearchableSelect
+                multi
                 options={allItems.map(i => ({
                   value: i.id,
                   label: i.serial_number,
                   sublabel: `${(i.product as any)?.name} · ${(i.location as any)?.name ?? 'No location'}`,
                 }))}
-                value={selectedItemId}
-                onChange={setSelectedItemId}
+                value={selectedItemIds}
+                onChange={setSelectedItemIds}
                 placeholder="Search by serial number…"
               />
             </div>
 
-            {/* Item summary */}
-            {selectedItem && (
-              <div className="flex items-center gap-4 p-3 bg-neutral-50 rounded-lg text-[12px]">
-                <div>
-                  <span className="text-neutral-500">Product</span>
-                  <p className="text-neutral-800 font-medium">{(selectedItem.product as any)?.name}</p>
-                </div>
-                <div>
-                  <span className="text-neutral-500">Location</span>
-                  <p className="text-neutral-800">{(selectedItem.location as any)?.name ?? 'None'}</p>
-                </div>
-                <div>
-                  <span className="text-neutral-500">Status</span>
-                  <div className="mt-0.5"><StatusBadge status={selectedItem.status} /></div>
-                </div>
-              </div>
-            )}
+            <MultiSelectInfoTable items={selectedItems} />
 
             {/* Action */}
             <div>
@@ -436,7 +509,7 @@ export default function Adjustment() {
               <SearchableSelect
                 options={TRACKED_ACTIONS}
                 value={action}
-                onChange={v => { setAction(v); setNewStatus(''); }}
+                onChange={v => { setAction(v as TrackedAction); setNewStatus(''); setTrackedTargetClientId(''); setTrackedTargetDesignation('deployment'); }}
                 placeholder="Select action…"
               />
             </div>
@@ -446,12 +519,38 @@ export default function Adjustment() {
               <div>
                 <label className="block text-sm font-medium text-neutral-700 mb-1">New Status</label>
                 <SearchableSelect
-                  options={ALL_STATUSES.filter(s => s.value !== selectedItem?.status)}
+                  options={ALL_STATUSES}
                   value={newStatus}
                   onChange={setNewStatus}
                   placeholder="Select new status…"
                 />
               </div>
+            )}
+
+            {/* Reallocate fields */}
+            {action === 'reallocate' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">
+                    Target Client <span className="text-neutral-400 font-normal">(blank = unallocated)</span>
+                  </label>
+                  <SearchableSelect
+                    options={companies.map(c => ({ value: c.id, label: c.name }))}
+                    value={trackedTargetClientId}
+                    onChange={setTrackedTargetClientId}
+                    placeholder="Unallocated"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">Target Designation</label>
+                  <SearchableSelect
+                    options={DESIGNATION_OPTIONS}
+                    value={trackedTargetDesignation}
+                    onChange={setTrackedTargetDesignation}
+                    placeholder="Select designation…"
+                  />
+                </div>
+              </>
             )}
 
             {/* Reason */}
@@ -461,7 +560,7 @@ export default function Adjustment() {
                 value={reason}
                 onChange={e => setReason(e.target.value)}
                 rows={2}
-                placeholder="Explain why this adjustment is needed"
+                placeholder={action === 'reallocate' ? 'e.g. Reassigning to KFC for upcoming deployment' : 'Explain why this adjustment is needed'}
                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-neutral-0 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y"
               />
             </div>
@@ -471,10 +570,13 @@ export default function Adjustment() {
             {/* Submit */}
             <button
               onClick={handleTrackedSubmit}
-              disabled={submittingTracked || !selectedItemId || !action || !reason.trim() || !movementDateTracked || (action === 'status_change' && !newStatus)}
+              disabled={submittingTracked || selectedItems.length === 0 || !action || !reason.trim() || !movementDateTracked || (action === 'status_change' && !newStatus)}
               className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
             >
-              {submittingTracked ? 'Processing…' : action === 'write_off' ? 'Write Off Item' : 'Apply Status Change'}
+              {submittingTracked ? 'Processing…'
+                : action === 'write_off' ? `Write Off ${selectedItems.length} Item${selectedItems.length !== 1 ? 's' : ''}`
+                : action === 'reallocate' ? `Reallocate ${selectedItems.length} Item${selectedItems.length !== 1 ? 's' : ''}`
+                : `Apply Status Change (${selectedItems.length})`}
             </button>
           </>
         ) : (
