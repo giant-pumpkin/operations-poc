@@ -468,6 +468,19 @@ Quantity-only stock (`inv_warehouse_stock`) previously had no allocation granula
 f6eceb9 Add allocated_client_id and designation to quantity-only stock
 ```
 
+---
+
+## Session 8 — Reallocate Action on Adjustment Page (2026-09-17)
+
+Added "Reallocate" action to the Adjustment page's Quantity Items tab, allowing stock to be moved between client pools (e.g., unallocated → client-allocated, or client A → client B).
+
+| Change | Detail |
+|--------|--------|
+| `Adjustment.tsx` | Added Reallocate action alongside existing Quantity Adjustment |
+| `Adjustment.tsx` | Target Client dropdown, Target Designation dropdown, Quantity to Reallocate field |
+| `Adjustment.tsx` | `handleReallocateSubmit()` decrements source pool, finds/creates target pool, logs movement |
+| `Adjustment.tsx` | Fixed companies query: `.eq('status', 'client')` (was `'active'`) |
+
 ### What's Left
 
 - Reporting / dashboards

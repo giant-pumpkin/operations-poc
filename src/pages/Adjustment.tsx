@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
-import type { Product, Location, InventoryItem, WarehouseStock, ItemStatus } from '../lib/types'
+import type { Product, Location, Company, InventoryItem, WarehouseStock, ItemStatus } from '../lib/types'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
@@ -8,10 +8,22 @@ import { StatusBadge } from '../components/StatusBadge'
 import MovementDateInput from '../components/MovementDateInput'
 
 type Mode = 'tracked' | 'untracked'
+type UntrackedAction = 'adjust' | 'reallocate'
 
 const TRACKED_ACTIONS = [
   { value: 'write_off', label: 'Write Off — lost, stolen, or damaged beyond repair' },
   { value: 'status_change', label: 'Status Change — manually set item status' },
+]
+
+const UNTRACKED_ACTIONS = [
+  { value: 'adjust', label: 'Quantity Adjustment — correct stock count' },
+  { value: 'reallocate', label: 'Reallocate — move stock to a different client pool' },
+]
+
+const DESIGNATION_OPTIONS = [
+  { value: 'deployment', label: 'Deployment' },
+  { value: 'spare', label: 'Spare' },
+  { value: 'maintenance', label: 'Maintenance' },
 ]
 
 const ALL_STATUSES: { value: ItemStatus; label: string }[] = [
@@ -40,15 +52,21 @@ export default function Adjustment() {
   // untracked
   const [qtyProducts, setQtyProducts] = useState<Product[]>([])
   const [warehouses, setWarehouses] = useState<Location[]>([])
+  const [companies, setCompanies] = useState<Company[]>([])
   const [productStockPools, setProductStockPools] = useState<WarehouseStock[]>([])
   const [selectedProductId, setSelectedProductId] = useState('')
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('')
   const [selectedPoolId, setSelectedPoolId] = useState('')
+  const [untrackedAction, setUntrackedAction] = useState<UntrackedAction>('adjust')
   const [stockRecord, setStockRecord] = useState<WarehouseStock | null>(null)
   const [newQty, setNewQty] = useState('')
   const [qtyReason, setQtyReason] = useState('')
   const [movementDateUntracked, setMovementDateUntracked] = useState('')
   const [submittingUntracked, setSubmittingUntracked] = useState(false)
+  // reallocate
+  const [targetClientId, setTargetClientId] = useState('')
+  const [targetDesignation, setTargetDesignation] = useState('deployment')
+  const [reallocateQty, setReallocateQty] = useState('')
 
   useEffect(() => {
     loadData()
@@ -63,11 +81,15 @@ export default function Adjustment() {
     setSelectedProductId('')
     setSelectedWarehouseId('')
     setSelectedPoolId('')
+    setUntrackedAction('adjust')
     setProductStockPools([])
     setStockRecord(null)
     setNewQty('')
     setQtyReason('')
     setMovementDateUntracked('')
+    setTargetClientId('')
+    setTargetDesignation('deployment')
+    setReallocateQty('')
   }, [mode])
 
   useEffect(() => {
@@ -97,7 +119,7 @@ export default function Adjustment() {
   }, [selectedPoolId, productStockPools])
 
   async function loadData() {
-    const [itemsRes, prodsRes, locsRes] = await Promise.all([
+    const [itemsRes, prodsRes, locsRes, companiesRes] = await Promise.all([
       supabase
         .from('inv_inventory_item')
         .select('*, product:inv_product_registry(id,name,sku), location:mock_cl_locations(id,name)')
@@ -105,10 +127,12 @@ export default function Adjustment() {
         .order('serial_number'),
       supabase.from('inv_product_registry').select('*').eq('tracking_type', 'quantity_only').eq('active', true).order('name'),
       supabase.from('mock_cl_locations').select('*').eq('type', 'warehouse').order('name'),
+      supabase.from('mock_cl_companies').select('*').eq('status', 'client').order('name'),
     ])
     if (itemsRes.data) setAllItems(itemsRes.data as unknown as InventoryItem[])
     if (prodsRes.data) setQtyProducts(prodsRes.data)
     if (locsRes.data) setWarehouses(locsRes.data as unknown as Location[])
+    if (companiesRes.data) setCompanies(companiesRes.data)
   }
 
   const selectedItem = allItems.find(i => i.id === selectedItemId) ?? null
@@ -254,6 +278,101 @@ export default function Adjustment() {
     }
   }
 
+  async function handleReallocateSubmit() {
+    const qty = Number(reallocateQty)
+    if (!stockRecord || !selectedPoolId || qty <= 0 || !qtyReason.trim() || !movementDateUntracked) {
+      toast('error', 'Please fill in all fields')
+      return
+    }
+    if (qty > stockRecord.quantity) {
+      toast('error', `Cannot reallocate more than available (${stockRecord.quantity})`)
+      return
+    }
+    const movementTime = new Date(movementDateUntracked)
+    if (movementTime > new Date()) {
+      toast('error', 'Movement date cannot be in the future.')
+      return
+    }
+
+    const srcClientId = stockRecord.allocated_client_id ?? null
+    const srcDesignation = stockRecord.designation ?? 'deployment'
+    const destClientId = targetClientId || null
+    const destDesignation = targetDesignation
+
+    if (srcClientId === destClientId && srcDesignation === destDesignation) {
+      toast('warning', 'Target pool is the same as source pool')
+      return
+    }
+
+    setSubmittingUntracked(true)
+    try {
+      const now = new Date().toISOString()
+      const locationId = stockRecord.location_id
+
+      const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
+        product_id: selectedProductId,
+        inventory_item_id: null,
+        from_location: null,
+        to_location: null,
+        performed_by: BOSS_PROFILE_ID,
+        movement_type: 'adjustment',
+        quantity: qty,
+        movement_time: movementTime.toISOString(),
+        notes: `Reallocation (${qty}×): ${qtyReason.trim()}`,
+      })
+      if (moveErr) throw moveErr
+
+      await supabase
+        .from('inv_warehouse_stock')
+        .update({ quantity: stockRecord.quantity - qty, updated_at: now })
+        .eq('id', stockRecord.id)
+
+      let destQuery = supabase
+        .from('inv_warehouse_stock')
+        .select('id, quantity')
+        .eq('product_id', selectedProductId)
+        .eq('location_id', locationId)
+        .eq('designation', destDesignation)
+      if (destClientId) destQuery = destQuery.eq('allocated_client_id', destClientId)
+      else destQuery = destQuery.is('allocated_client_id', null)
+      const { data: existing } = await destQuery.maybeSingle()
+
+      if (existing) {
+        await supabase
+          .from('inv_warehouse_stock')
+          .update({ quantity: existing.quantity + qty, updated_at: now })
+          .eq('id', existing.id)
+      } else {
+        await supabase
+          .from('inv_warehouse_stock')
+          .insert({
+            product_id: selectedProductId,
+            location_id: locationId,
+            allocated_client_id: destClientId,
+            designation: destDesignation,
+            quantity: qty,
+          })
+      }
+
+      const product = qtyProducts.find(p => p.id === selectedProductId)
+      toast('success', `${product?.name}: reallocated ${qty} units`)
+      setSelectedProductId('')
+      setSelectedPoolId('')
+      setUntrackedAction('adjust')
+      setProductStockPools([])
+      setStockRecord(null)
+      setMovementDateUntracked('')
+      setQtyReason('')
+      setTargetClientId('')
+      setTargetDesignation('deployment')
+      setReallocateQty('')
+    } catch (err: any) {
+      toast('error', err.message || 'Reallocation failed')
+    } finally {
+      setSubmittingUntracked(false)
+    }
+  }
+
   const diff = stockRecord ? Number(newQty) - stockRecord.quantity : Number(newQty) || 0
 
   return (
@@ -392,8 +511,27 @@ export default function Adjustment() {
               </div>
             )}
 
-            {/* Quantity adjustment */}
+            {/* Action */}
             {selectedProductId && selectedPoolId && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Action</label>
+                <SearchableSelect
+                  options={UNTRACKED_ACTIONS}
+                  value={untrackedAction}
+                  onChange={v => {
+                    setUntrackedAction(v as UntrackedAction)
+                    setNewQty(stockRecord ? String(stockRecord.quantity) : '0')
+                    setTargetClientId('')
+                    setTargetDesignation('deployment')
+                    setReallocateQty('')
+                  }}
+                  placeholder="Select action…"
+                />
+              </div>
+            )}
+
+            {/* Quantity adjustment */}
+            {selectedProductId && selectedPoolId && untrackedAction === 'adjust' && (
               <div className="grid grid-cols-3 gap-3">
                 <div className="p-3 bg-neutral-50 rounded-lg">
                   <span className="block text-[11px] text-neutral-500 mb-1">Current Quantity</span>
@@ -418,6 +556,46 @@ export default function Adjustment() {
               </div>
             )}
 
+            {/* Reallocate */}
+            {selectedProductId && selectedPoolId && untrackedAction === 'reallocate' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">
+                    Target Client <span className="text-neutral-400 font-normal">(blank = unallocated)</span>
+                  </label>
+                  <SearchableSelect
+                    options={companies.map(c => ({ value: c.id, label: c.name }))}
+                    value={targetClientId}
+                    onChange={setTargetClientId}
+                    placeholder="Unallocated"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">Target Designation</label>
+                  <SearchableSelect
+                    options={DESIGNATION_OPTIONS}
+                    value={targetDesignation}
+                    onChange={setTargetDesignation}
+                    placeholder="Deployment"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">
+                    Quantity to Reallocate <span className="text-neutral-400 font-normal">(max {stockRecord?.quantity ?? 0})</span>
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={reallocateQty}
+                    onChange={e => setReallocateQty(e.target.value.replace(/\D/g, ''))}
+                    className="w-32 h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+              </>
+            )}
+
             {/* Reason */}
             <div>
               <label className="block text-sm font-medium text-neutral-700 mb-1">Reason (required)</label>
@@ -425,7 +603,9 @@ export default function Adjustment() {
                 value={qtyReason}
                 onChange={e => setQtyReason(e.target.value)}
                 rows={2}
-                placeholder="e.g. Physical count shows 47, system shows 50 — 3 units missing"
+                placeholder={untrackedAction === 'reallocate'
+                  ? 'e.g. Allocating stock for upcoming KFC deployment'
+                  : 'e.g. Physical count shows 47, system shows 50 — 3 units missing'}
                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-neutral-0 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y"
               />
             </div>
@@ -433,13 +613,23 @@ export default function Adjustment() {
             <MovementDateInput value={movementDateUntracked} onChange={setMovementDateUntracked} />
 
             {/* Submit */}
-            <button
-              onClick={handleUntrackedSubmit}
-              disabled={submittingUntracked || !selectedProductId || !selectedPoolId || !qtyReason.trim() || !movementDateUntracked || diff === 0}
-              className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
-            >
-              {submittingUntracked ? 'Processing…' : `Apply Adjustment (${diff > 0 ? '+' : ''}${diff})`}
-            </button>
+            {untrackedAction === 'adjust' ? (
+              <button
+                onClick={handleUntrackedSubmit}
+                disabled={submittingUntracked || !selectedProductId || !selectedPoolId || !qtyReason.trim() || !movementDateUntracked || diff === 0}
+                className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
+              >
+                {submittingUntracked ? 'Processing…' : `Apply Adjustment (${diff > 0 ? '+' : ''}${diff})`}
+              </button>
+            ) : (
+              <button
+                onClick={handleReallocateSubmit}
+                disabled={submittingUntracked || !selectedPoolId || !qtyReason.trim() || !movementDateUntracked || !(Number(reallocateQty) > 0)}
+                className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
+              >
+                {submittingUntracked ? 'Processing…' : `Reallocate ${reallocateQty || 0} Units`}
+              </button>
+            )}
           </>
         )}
       </div>
