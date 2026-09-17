@@ -308,7 +308,7 @@ export default function Transfer() {
                 }))}
                 value={selectedItemIds}
                 onChange={setSelectedItemIds}
-                placeholder="Search by serial number…"
+                placeholder="Search by serial number or location…"
               />
             </div>
 

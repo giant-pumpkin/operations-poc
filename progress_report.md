@@ -323,3 +323,10 @@ Verified with `tsc --noEmit`, a production build, and live REST API calls agains
 ### README rewrite
 
 Replaced the default Vite template README with a real project summary (what ConnectIQ Inventory is, stack, pages table) and moved the `next_steps.md` / `progress_report.md` workflow explanation near the top, so a new reader understands the planning-doc loop (spec written in Claude web → built here → progress logged back) before anything else.
+
+### SearchableSelect fixes (Transfer page and shared component)
+
+- Search box wasn't rendering at all when a dropdown had 5 or fewer options — it was gated behind an `options.length > 5` check in `SearchableSelect.tsx`. Removed the gate so the search input always shows, fixing "can't type anything in the dropdown" on Transfer's item picker (and every other use of the component).
+- Transfer's "Select Items" dropdown already matched on both serial number and location under the hood (search filters on label + sublabel, and location is part of the sublabel) — updated the placeholder text to say so.
+- UX polish: clicking the dropdown trigger now morphs it directly into the search input (same position/size) instead of opening a second, redundant search box underneath the closed trigger. Applied to both single- and multi-select modes.
+- Verified live in the browser (typing "Apple Store" correctly filtered to the one matching item; the in-place input swap renders correctly).

@@ -40,6 +40,7 @@ export default function SearchableSelect(props: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const isMulti = props.multi === true
 
@@ -80,45 +81,46 @@ export default function SearchableSelect(props: Props) {
 
     return (
       <div className={`relative ${className}`} ref={containerRef}>
-        <button
-          type="button"
-          onClick={() => { if (!disabled) { setOpen(!open); setQuery('') } }}
-          disabled={disabled}
-          className="w-full h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-neutral-100 disabled:text-neutral-400"
-        >
-          <span className={`truncate ${selected.length > 0 ? 'text-neutral-900' : 'text-neutral-400'}`}>
-            {buttonLabel}
-          </span>
-          <div className="flex items-center gap-1 shrink-0 ml-2">
-            {selected.length > 0 && (
-              <span
-                onClick={e => { e.stopPropagation(); multiProps.onChange([]) }}
-                className="p-0.5 rounded hover:bg-neutral-100 text-neutral-400 hover:text-neutral-600 cursor-pointer"
-              >
-                <X size={13} />
-              </span>
-            )}
-            <ChevronDown size={14} className="text-neutral-400" />
+        {open ? (
+          <div className="relative">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search..."
+              autoFocus
+              className="w-full h-10 pl-8 pr-8 bg-neutral-0 border border-brand-500 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400" />
           </div>
-        </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => { if (!disabled) { setOpen(true); setQuery('') } }}
+            disabled={disabled}
+            className="w-full h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-neutral-100 disabled:text-neutral-400"
+          >
+            <span className={`truncate ${selected.length > 0 ? 'text-neutral-900' : 'text-neutral-400'}`}>
+              {buttonLabel}
+            </span>
+            <div className="flex items-center gap-1 shrink-0 ml-2">
+              {selected.length > 0 && (
+                <span
+                  onClick={e => { e.stopPropagation(); multiProps.onChange([]) }}
+                  className="p-0.5 rounded hover:bg-neutral-100 text-neutral-400 hover:text-neutral-600 cursor-pointer"
+                >
+                  <X size={13} />
+                </span>
+              )}
+              <ChevronDown size={14} className="text-neutral-400" />
+            </div>
+          </button>
+        )}
 
         {open && (
           <div className="absolute z-50 mt-1 w-full bg-neutral-0 border border-neutral-200 rounded-lg shadow-md overflow-hidden">
-            {options.length > 5 && (
-              <div className="p-1.5 border-b border-neutral-200">
-                <div className="relative">
-                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
-                  <input
-                    type="text"
-                    value={query}
-                    onChange={e => setQuery(e.target.value)}
-                    placeholder="Search..."
-                    autoFocus
-                    className="w-full h-8 pl-7 pr-2.5 bg-neutral-50 border border-neutral-200 rounded-md text-[12px] placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-brand-500"
-                  />
-                </div>
-              </div>
-            )}
             <div className="max-h-56 overflow-y-auto py-1">
               {filtered.length === 0 ? (
                 <div className="px-3 py-2 text-[12px] text-neutral-400">No matches</div>
@@ -156,35 +158,36 @@ export default function SearchableSelect(props: Props) {
 
   return (
     <div className={`relative ${className}`} ref={containerRef}>
-      <button
-        type="button"
-        onClick={() => { if (!disabled) { setOpen(!open); setQuery('') } }}
-        disabled={disabled}
-        className="w-full h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-neutral-100 disabled:text-neutral-400"
-      >
-        <span className={`truncate ${selected ? 'text-neutral-900' : 'text-neutral-400'}`}>
-          {selected ? (selected.sublabel ? `${selected.label} (${selected.sublabel})` : selected.label) : placeholder}
-        </span>
-        <ChevronDown size={14} className="text-neutral-400 shrink-0 ml-2" />
-      </button>
+      {open ? (
+        <div className="relative">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search..."
+            autoFocus
+            className="w-full h-10 pl-8 pr-8 bg-neutral-0 border border-brand-500 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => { if (!disabled) { setOpen(true); setQuery('') } }}
+          disabled={disabled}
+          className="w-full h-10 px-3 bg-neutral-0 border border-neutral-200 rounded-lg text-[13px] text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-neutral-100 disabled:text-neutral-400"
+        >
+          <span className={`truncate ${selected ? 'text-neutral-900' : 'text-neutral-400'}`}>
+            {selected ? (selected.sublabel ? `${selected.label} (${selected.sublabel})` : selected.label) : placeholder}
+          </span>
+          <ChevronDown size={14} className="text-neutral-400 shrink-0 ml-2" />
+        </button>
+      )}
 
       {open && (
         <div className="absolute z-50 mt-1 w-full bg-neutral-0 border border-neutral-200 rounded-lg shadow-md overflow-hidden">
-          {options.length > 5 && (
-            <div className="p-1.5 border-b border-neutral-200">
-              <div className="relative">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
-                <input
-                  type="text"
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder="Search..."
-                  autoFocus
-                  className="w-full h-8 pl-7 pr-2.5 bg-neutral-50 border border-neutral-200 rounded-md text-[12px] placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-brand-500"
-                />
-              </div>
-            </div>
-          )}
           <div className="max-h-56 overflow-y-auto py-1">
             {singleProps.value && (
               <button
