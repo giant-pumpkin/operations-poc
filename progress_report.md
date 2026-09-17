@@ -315,3 +315,11 @@ Verified with `tsc --noEmit`, a production build, and live REST API calls agains
 - User auth + role-based access
 - DE1 (installation pipeline) — mostly covered by Jobs now; still needs Contracts
 - Ownership field UI — deferred until the Airtable migration (Section 12)
+
+---
+
+## Progress Report — Session 5 (2026-09-17)
+
+### README rewrite
+
+Replaced the default Vite template README with a real project summary (what ConnectIQ Inventory is, stack, pages table) and moved the `next_steps.md` / `progress_report.md` workflow explanation near the top, so a new reader understands the planning-doc loop (spec written in Claude web → built here → progress logged back) before anything else.

@@ -1,32 +1,36 @@
-# React + TypeScript + Vite
+# ConnectIQ Inventory
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Internal inventory management prototype for Giant Pumpkin's hardware deployment operations — digital signage displays, accessories, and related equipment deployed to client sites.
 
-Currently, two official plugins are available:
+It tracks serial-tracked items (displays) and quantity-only items (cables, SD cards) across warehouses, repair centers, and client sites, with per-client pool allocation, warranty tracking, and a Jobs domain for work orders (installation, delivery, maintenance, etc.) that ties directly into inventory movements.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+**Stack:** React 19 + TypeScript + Vite + Tailwind CSS 4 + Supabase
 
-## React Compiler
+## Planning docs
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **`next_steps.md`** — the spec. Written in Claude web and pasted in as new sections get planned; describes what to build next, DB schema changes, and test scenarios to verify each feature.
+- **`progress_report.md`** — the log. Updated alongside each commit with what was actually built, so progress can be reviewed and the next round of planning (back in Claude web) picks up from an accurate state.
 
-## Expanding the Oxlint configuration
+Together these two files are the source of truth for "what's planned" vs. "what's done" — check them before assuming a page or feature does or doesn't exist yet.
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## Pages
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+| Page | Route | Notes |
+|------|-------|-------|
+| Products | `/products` | Product registry (CRUD) |
+| Inventory | `/inventory` | Serial-tracked items, search/filters, inline editing |
+| Stock | `/stock` | Warehouse stock levels, pool allocation view |
+| Stock In | `/stock-in` | Receive new stock (serial or quantity mode) |
+| Transfer | `/transfer` | Move items between locations; auto-detects return vs. transfer from source type |
+| Adjustment | `/adjustment` | Write-offs, status changes, quantity corrections |
+| Jobs | `/jobs`, `/jobs/:id` | Work orders (installation, delivery, maintenance, etc.), fulfilled by entering serials/quantities against inventory |
+| Movements | `/movements` | Full stock movement audit log |
+
+## Development
+
+```
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Uses a Supabase sandbox project (no auth — hardcoded profile ID for movement attribution, RLS disabled).
