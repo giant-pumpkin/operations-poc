@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, Check, Search, X } from 'lucide-react'
+import { ChevronDown, Check, Search } from 'lucide-react'
 
 export interface SelectOption {
   value: string
@@ -105,17 +105,17 @@ export default function SearchableSelect(props: Props) {
             <span className={`truncate ${selected.length > 0 ? 'text-neutral-900' : 'text-neutral-400'}`}>
               {buttonLabel}
             </span>
-            <div className="flex items-center gap-1 shrink-0 ml-2">
-              {selected.length > 0 && (
-                <span
-                  onClick={e => { e.stopPropagation(); multiProps.onChange([]) }}
-                  className="p-0.5 rounded hover:bg-neutral-100 text-neutral-400 hover:text-neutral-600 cursor-pointer"
-                >
-                  <X size={13} />
-                </span>
-              )}
-              <ChevronDown size={14} className="text-neutral-400" />
-            </div>
+            <ChevronDown size={14} className="text-neutral-400 shrink-0 ml-2" />
+          </button>
+        )}
+
+        {!open && selected.length > 0 && (
+          <button
+            type="button"
+            onClick={() => multiProps.onChange([])}
+            className="mt-1.5 px-3 py-1 rounded-md text-[12px] text-neutral-500 hover:text-neutral-700 hover:bg-neutral-100 transition-colors duration-120"
+          >
+            Clear selection
           </button>
         )}
 
