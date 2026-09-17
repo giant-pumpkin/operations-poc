@@ -105,17 +105,17 @@ export default function SearchableSelect(props: Props) {
             <span className={`truncate ${selected.length > 0 ? 'text-neutral-900' : 'text-neutral-400'}`}>
               {buttonLabel}
             </span>
-            <ChevronDown size={14} className="text-neutral-400 shrink-0 ml-2" />
-          </button>
-        )}
-
-        {!open && selected.length > 0 && (
-          <button
-            type="button"
-            onClick={() => multiProps.onChange([])}
-            className="mt-1.5 px-3 py-1 rounded-md text-[12px] text-neutral-500 hover:text-neutral-700 hover:bg-neutral-100 transition-colors duration-120"
-          >
-            Clear selection
+            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+              {selected.length > 0 && (
+                <span
+                  onClick={e => { e.stopPropagation(); multiProps.onChange([]) }}
+                  className="px-2 py-0.5 rounded text-[11px] font-medium bg-brand-500 text-neutral-0 hover:bg-brand-600 cursor-pointer transition-colors duration-120"
+                >
+                  Clear
+                </span>
+              )}
+              <ChevronDown size={14} className="text-neutral-400" />
+            </div>
           </button>
         )}
 
