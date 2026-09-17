@@ -10,7 +10,7 @@ import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
 import MovementDateInput from '../components/MovementDateInput'
 import { activateWarrantyIfNeeded } from '../lib/warranty'
-import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Pencil, Check } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Pencil, Check, Trash2 } from 'lucide-react'
 
 const REASON_OPTIONS = [
   { value: 'defect', label: 'Defect — needs repair' },
@@ -61,6 +61,14 @@ export default function JobDetail() {
   const [newItemDirection, setNewItemDirection] = useState<'outbound' | 'inbound'>('outbound')
   const [newItemQty, setNewItemQty] = useState('1')
   const [addingItem, setAddingItem] = useState(false)
+
+  // edit job item
+  const [editingItemId, setEditingItemId] = useState('')
+  const [editProductId, setEditProductId] = useState('')
+  const [editDirection, setEditDirection] = useState<'outbound' | 'inbound'>('outbound')
+  const [editQty, setEditQty] = useState('')
+  const [savingItem, setSavingItem] = useState(false)
+  const [deletingItemId, setDeletingItemId] = useState('')
 
   // serial / quantity entry
   const [entryJobItemId, setEntryJobItemId] = useState('')
@@ -215,6 +223,62 @@ export default function JobDetail() {
       toast('error', err.message || 'Failed to add item')
     } finally {
       setAddingItem(false)
+    }
+  }
+
+  function startEditItem(item: JobItem) {
+    setEditingItemId(item.id)
+    setEditProductId(item.product_id)
+    setEditDirection(item.direction)
+    setEditQty(String(item.planned_quantity))
+  }
+
+  function cancelEditItem() {
+    setEditingItemId('')
+  }
+
+  async function handleSaveItem(item: JobItem) {
+    const qty = Number(editQty)
+    if (!qty || qty <= 0) {
+      toast('error', 'Enter a valid quantity')
+      return
+    }
+    if (qty < item.fulfilled_quantity) {
+      toast('error', `Planned quantity cannot be less than fulfilled (${item.fulfilled_quantity})`)
+      return
+    }
+    setSavingItem(true)
+    try {
+      const newStatus = item.fulfilled_quantity >= qty ? 'fulfilled' : item.fulfilled_quantity > 0 ? 'partial' : 'planned'
+      const updates: Record<string, unknown> = { planned_quantity: qty, status: newStatus }
+      if (item.fulfilled_quantity === 0) {
+        updates.product_id = editProductId
+        updates.direction = editDirection
+      }
+      const { error } = await supabase.from('job_items').update(updates).eq('id', item.id)
+      if (error) throw error
+      toast('success', 'Item updated')
+      setEditingItemId('')
+      fetchJob()
+    } catch (err: any) {
+      toast('error', err.message || 'Failed to update item')
+    } finally {
+      setSavingItem(false)
+    }
+  }
+
+  async function handleDeleteItem(item: JobItem) {
+    if (item.fulfilled_quantity > 0) return
+    setDeletingItemId(item.id)
+    try {
+      const { error } = await supabase.from('job_items').delete().eq('id', item.id)
+      if (error) throw error
+      toast('success', 'Item removed')
+      fetchJob()
+    } catch (err: any) {
+      toast('error', err.message || 'Failed to remove item')
+    } finally {
+      setDeletingItemId('')
     }
   }
 
@@ -580,7 +644,16 @@ export default function JobDetail() {
         {jobItems.length === 0 ? (
           <p className="text-[12px] text-neutral-400">No items on this job</p>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: '28px' }} />
+              <col style={{ width: '32%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '80px' }} />
+            </colgroup>
             <thead>
               <tr className="bg-neutral-50 text-[11px] uppercase tracking-[0.06em] text-neutral-500">
                 <th className="w-8" />
@@ -589,6 +662,7 @@ export default function JobDetail() {
                 <th className="text-right px-3 py-2 font-medium">Planned</th>
                 <th className="text-right px-3 py-2 font-medium">Fulfilled</th>
                 <th className="text-left px-3 py-2 font-medium">Status</th>
+                <th className="w-20" />
               </tr>
             </thead>
             <tbody>
@@ -596,29 +670,103 @@ export default function JobDetail() {
                 const product = item.product as unknown as Product | undefined
                 const expanded = expandedItemIds.has(item.id)
                 const serials = item.serials ?? []
+                const isEditing = editingItemId === item.id
+                const locked = item.fulfilled_quantity > 0
+
+                if (isEditing) {
+                  return (
+                    <tr key={item.id} className="border-t border-neutral-100 bg-neutral-25">
+                      <td />
+                      <td className="px-3 py-2">
+                        <SearchableSelect
+                          options={products.map(p => ({ value: p.id, label: p.name, sublabel: p.sku }))}
+                          value={editProductId}
+                          onChange={setEditProductId}
+                          disabled={locked}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <SearchableSelect
+                          options={DIRECTION_OPTIONS}
+                          value={editDirection}
+                          onChange={v => setEditDirection(v as 'outbound' | 'inbound')}
+                          disabled={locked}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={editQty}
+                          onChange={e => setEditQty(e.target.value.replace(/\D/g, ''))}
+                          className="w-20 h-10 px-2 rounded-lg border border-neutral-200 bg-neutral-0 text-sm text-right focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-[12px] font-mono text-neutral-700 text-right">{item.fulfilled_quantity}</td>
+                      <td className="px-3 py-2 text-[11px] text-neutral-400">{formatLabel(item.status)}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleSaveItem(item)}
+                            disabled={savingItem}
+                            className="p-1.5 rounded-md text-brand-500 hover:bg-brand-50 disabled:opacity-40"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button onClick={cancelEditItem} className="p-1.5 rounded-md text-neutral-400 hover:bg-neutral-100">
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                }
+
                 return (
                   <Fragment key={item.id}>
-                    <tr
-                      onClick={() => toggleExpand(item.id)}
-                      className="border-t border-neutral-100 cursor-pointer hover:bg-neutral-25"
-                    >
-                      <td className="px-2 py-2 text-neutral-400">
+                    <tr className="border-t border-neutral-100 hover:bg-neutral-25">
+                      <td className="px-2 py-2 text-neutral-400 cursor-pointer" onClick={() => toggleExpand(item.id)}>
                         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </td>
-                      <td className="px-3 py-2 text-[12px] text-neutral-800">{product?.name ?? '—'}</td>
-                      <td className="px-3 py-2"><DirectionBadge direction={item.direction} /></td>
-                      <td className="px-3 py-2 text-[12px] font-mono text-neutral-700 text-right">{item.planned_quantity}</td>
-                      <td className="px-3 py-2 text-[12px] font-mono text-neutral-700 text-right">{item.fulfilled_quantity}</td>
-                      <td className="px-3 py-2 text-[11px]">
+                      <td className="px-3 py-2 text-[12px] text-neutral-800 cursor-pointer" onClick={() => toggleExpand(item.id)}>{product?.name ?? '—'}</td>
+                      <td className="px-3 py-2 cursor-pointer" onClick={() => toggleExpand(item.id)}><DirectionBadge direction={item.direction} /></td>
+                      <td className="px-3 py-2 text-[12px] font-mono text-neutral-700 text-right cursor-pointer" onClick={() => toggleExpand(item.id)}>{item.planned_quantity}</td>
+                      <td className="px-3 py-2 text-[12px] font-mono text-neutral-700 text-right cursor-pointer" onClick={() => toggleExpand(item.id)}>{item.fulfilled_quantity}</td>
+                      <td className="px-3 py-2 text-[11px] cursor-pointer" onClick={() => toggleExpand(item.id)}>
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 font-medium">
                           {formatLabel(item.status)}
                         </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => startEditItem(item)}
+                            className="p-1.5 rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <div className="relative group">
+                            <button
+                              onClick={() => handleDeleteItem(item)}
+                              disabled={locked || deletingItemId === item.id}
+                              className="p-1.5 rounded-md text-neutral-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-neutral-400"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                            {locked && (
+                              <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 rounded-lg bg-[#2b2b2e] text-neutral-0 text-[12px] font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
+                                Can't remove — {item.fulfilled_quantity} already fulfilled
+                                <div className="absolute top-full right-4 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] border-t-[#2b2b2e]" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </td>
                     </tr>
                     {expanded && (
                       <tr className="border-t border-neutral-100 bg-neutral-25">
                         <td />
-                        <td colSpan={5} className="px-3 py-2">
+                        <td colSpan={6} className="px-3 py-2">
                           {serials.length === 0 ? (
                             <p className="text-[12px] text-neutral-400">No serials linked yet</p>
                           ) : (

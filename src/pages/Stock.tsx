@@ -36,8 +36,7 @@ interface PoolRow {
   label: string
   counts: StatusCounts
   total: number
-  planned: number
-  free: number
+  committed: number
 }
 
 interface ProductGroup {
@@ -47,8 +46,7 @@ interface ProductGroup {
   counts: StatusCounts
   total: number
   pools: PoolRow[]
-  planned: number
-  free: number
+  committed: number
 }
 
 interface WarehouseRow {
@@ -63,15 +61,14 @@ interface UntrackedGroup {
   warehouses: WarehouseRow[]
 }
 
-// 'scheduled' is not used as a stock-view column: no inventory item is ever automatically
-// set to it (see next_steps.md Section 1 design decision). The stock view instead computes
-// "Planned" from open job_items and "Free" = Available - Planned.
+// 'scheduled' is not used as a stock-view column. The stock view computes "Committed"
+// from open job_items. Available turns red when Available < Committed.
 const REMAINING_STATUSES: ItemStatus[] = ['in_transit', 'installed', 'defect', 'in_repair']
 const emptyCounts = (): StatusCounts => ({
   available: 0, scheduled: 0, installed: 0, in_transit: 0, defect: 0, in_repair: 0, written_off: 0,
 })
 
-function ExpandableRows({ pools, expanded, showPlanned }: { pools: PoolRow[]; expanded: boolean; showPlanned: boolean }) {
+function ExpandableRows({ pools, expanded, showCommitted }: { pools: PoolRow[]; expanded: boolean; showCommitted: boolean }) {
   const ref = useRef<HTMLTableSectionElement>(null)
   const [height, setHeight] = useState(0)
 
@@ -97,26 +94,21 @@ function ExpandableRows({ pools, expanded, showPlanned }: { pools: PoolRow[]; ex
             {pool.label}
           </td>
           <td className="px-3 py-1.5" />
-          <td className="px-3 py-1.5 font-mono text-[12px] text-center">
+          <td className={`px-3 py-1.5 font-mono text-[12px] text-center ${showCommitted && pool.counts.available < pool.committed ? 'text-red-600 font-semibold' : ''}`}>
             {pool.counts.available > 0 ? (
-              <span className="text-neutral-700">{pool.counts.available}</span>
+              <span className={showCommitted && pool.counts.available < pool.committed ? '' : 'text-neutral-700'}>{pool.counts.available}</span>
             ) : (
-              <span className="text-neutral-300">0</span>
+              <span className={showCommitted && pool.counts.available < pool.committed ? '' : 'text-neutral-300'}>0</span>
             )}
           </td>
-          {showPlanned && (
-            <>
-              <td className="px-3 py-1.5 font-mono text-[12px] text-center">
-                {pool.planned > 0 ? (
-                  <span className="text-neutral-700">{pool.planned}</span>
-                ) : (
-                  <span className="text-neutral-300">0</span>
-                )}
-              </td>
-              <td className={`px-3 py-1.5 font-mono text-[12px] text-center ${pool.free < 0 ? 'text-red-600 font-semibold' : 'text-neutral-700'}`}>
-                {pool.free}
-              </td>
-            </>
+          {showCommitted && (
+            <td className="px-3 py-1.5 font-mono text-[12px] text-center">
+              {pool.committed > 0 ? (
+                <span className="text-neutral-700">{pool.committed}</span>
+              ) : (
+                <span className="text-neutral-300">0</span>
+              )}
+            </td>
           )}
           {REMAINING_STATUSES.map(s => (
             <td key={s} className="px-3 py-1.5 font-mono text-[12px] text-center">
@@ -270,8 +262,7 @@ export default function Stock() {
           counts: emptyCounts(),
           total: 0,
           pools: [],
-          planned: 0,
-          free: 0,
+          committed: 0,
         }
         products.set(item.productId, group)
       }
@@ -290,7 +281,7 @@ export default function Stock() {
         const label = `${item.clientName} · ${designationLabel}`
         let pool = poolMap.get(poolKey)
         if (!pool) {
-          pool = { label, counts: emptyCounts(), total: 0, planned: 0, free: 0 }
+          pool = { label, counts: emptyCounts(), total: 0, committed: 0 }
           poolMap.set(poolKey, pool)
           poolClientIds.set(poolKey, item.clientId)
         }
@@ -298,14 +289,10 @@ export default function Stock() {
         pool.total++
       }
 
-      // Planned/Free are a client-level commitment, not tied to designation — every
-      // designation pool for the same client shows the same client-wide Planned total.
       const distinctClientIds = new Set<string>()
       for (const [poolKey, pool] of poolMap) {
         const clientId = poolClientIds.get(poolKey)
-        const planned = clientId ? (plannedByProductClient.get(`${group.productId}__${clientId}`)?.qty ?? 0) : 0
-        pool.planned = planned
-        pool.free = pool.counts.available - planned
+        pool.committed = clientId ? (plannedByProductClient.get(`${group.productId}__${clientId}`)?.qty ?? 0) : 0
         if (clientId) distinctClientIds.add(clientId)
       }
 
@@ -320,18 +307,16 @@ export default function Stock() {
             label: `${entry.clientName} · Deployment`,
             counts: emptyCounts(),
             total: 0,
-            planned: entry.qty,
-            free: -entry.qty,
+            committed: entry.qty,
           })
           distinctClientIds.add(entry.clientId)
         }
       }
 
-      group.planned = Array.from(distinctClientIds).reduce(
+      group.committed = Array.from(distinctClientIds).reduce(
         (sum, clientId) => sum + (plannedByProductClient.get(`${group.productId}__${clientId}`)?.qty ?? 0),
         0
       )
-      group.free = group.counts.available - group.planned
 
       group.pools = Array.from(poolMap.values()).sort((a, b) => a.label.localeCompare(b.label))
     }
@@ -430,10 +415,7 @@ export default function Stock() {
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em]">SKU</th>
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">available</th>
                   {activeTab === '' && (
-                    <>
-                      <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">planned</th>
-                      <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">free</th>
-                    </>
+                    <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">committed</th>
                   )}
                   {REMAINING_STATUSES.map(s => (
                     <th key={s} className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">
@@ -465,26 +447,21 @@ export default function Stock() {
                           </span>
                         </td>
                         <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">{group.sku}</td>
-                        <td className="px-3 py-2 font-mono text-[12px] text-center">
+                        <td className={`px-3 py-2 font-mono text-[12px] text-center ${activeTab === '' && group.counts.available < group.committed ? 'text-red-600 font-semibold' : ''}`}>
                           {group.counts.available > 0 ? (
-                            <span className="text-neutral-800 font-medium">{group.counts.available}</span>
+                            <span className={activeTab === '' && group.counts.available < group.committed ? '' : 'text-neutral-800 font-medium'}>{group.counts.available}</span>
                           ) : (
-                            <span className="text-neutral-300">0</span>
+                            <span className={activeTab === '' && group.counts.available < group.committed ? '' : 'text-neutral-300'}>0</span>
                           )}
                         </td>
                         {activeTab === '' && (
-                          <>
-                            <td className="px-3 py-2 font-mono text-[12px] text-center">
-                              {group.planned > 0 ? (
-                                <span className="text-neutral-800 font-medium">{group.planned}</span>
-                              ) : (
-                                <span className="text-neutral-300">0</span>
-                              )}
-                            </td>
-                            <td className={`px-3 py-2 font-mono text-[12px] text-center font-medium ${group.free < 0 ? 'text-red-600' : 'text-neutral-800'}`}>
-                              {group.free}
-                            </td>
-                          </>
+                          <td className="px-3 py-2 font-mono text-[12px] text-center">
+                            {group.committed > 0 ? (
+                              <span className="text-neutral-800 font-medium">{group.committed}</span>
+                            ) : (
+                              <span className="text-neutral-300">0</span>
+                            )}
+                          </td>
                         )}
                         {REMAINING_STATUSES.map(s => (
                           <td key={s} className="px-3 py-2 font-mono text-[12px] text-center">
@@ -498,7 +475,7 @@ export default function Stock() {
                         <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-semibold">{group.total}</td>
                       </tr>
                     </tbody>
-                    <ExpandableRows pools={group.pools} expanded={isExpanded} showPlanned={activeTab === ''} />
+                    <ExpandableRows pools={group.pools} expanded={isExpanded} showCommitted={activeTab === ''} />
                   </Fragment>
                 )
               })}
