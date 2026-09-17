@@ -8,6 +8,8 @@ import StockIn from './pages/StockIn'
 import Transfer from './pages/Transfer'
 import Adjustment from './pages/Adjustment'
 import Movements from './pages/Movements'
+import Jobs from './pages/Jobs'
+import JobDetail from './pages/JobDetail'
 
 export default function App() {
   return (
@@ -21,6 +23,8 @@ export default function App() {
             <Route path="/stock-in" element={<StockIn />} />
             <Route path="/transfer" element={<Transfer />} />
             <Route path="/adjustment" element={<Adjustment />} />
+            <Route path="/jobs" element={<Jobs />} />
+            <Route path="/jobs/:id" element={<JobDetail />} />
             <Route path="/movements" element={<Movements />} />
             <Route path="*" element={<Navigate to="/products" replace />} />
           </Route>

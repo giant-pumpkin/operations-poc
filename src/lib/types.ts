@@ -87,3 +87,58 @@ export type ItemStatus = InventoryItem['status']
 export type MovementType = StockMovement['movement_type']
 export type TrackingType = Product['tracking_type']
 export type Designation = InventoryItem['designation']
+
+export interface Job {
+  id: string
+  job_number: string
+  job_type:
+    | 'installation' | 'delivery' | 'collect' | 'un_installation' | 'rework'
+    | 'survey' | 'ma_audit' | 'ma_preventive' | 'ma_reactive' | 'account_setup' | 'pre_sale'
+  status: 'tentative' | 'scheduled' | 'in_progress' | 'completed' | 'closed' | 'incomplete' | 'cancelled'
+  client_id: string
+  location_id: string
+  partner_id: string | null
+  scheduled_date: string | null
+  completed_date: string | null
+  closed_date: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  client?: Company
+  location?: Location
+  partner?: Company
+}
+
+export interface JobItem {
+  id: string
+  job_id: string
+  product_id: string
+  direction: 'outbound' | 'inbound'
+  planned_quantity: number
+  fulfilled_quantity: number
+  status: 'planned' | 'partial' | 'fulfilled'
+  created_at: string
+  product?: Product
+  serials?: JobItemSerial[]
+}
+
+export interface JobItemSerial {
+  id: string
+  job_item_id: string
+  inventory_item_id: string
+  entered_at: string
+  inventory_item?: InventoryItem
+}
+
+export interface JobAssignee {
+  id: string
+  job_id: string
+  profile_id: string
+  role: 'lead' | 'member'
+  profile?: Profile
+}
+
+export type JobType = Job['job_type']
+export type JobStatus = Job['status']
+export type JobItemDirection = JobItem['direction']
+export type JobItemStatus = JobItem['status']

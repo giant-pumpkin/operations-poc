@@ -270,11 +270,48 @@ e713930 Add destination type filter to Transfer page
 a5bab2f Replace item search + Add button with multi-select on Transfer page
 ```
 
+---
+
+## Progress Report — Session 4 (2026-09-16)
+
+### Jobs Domain (Section 6 of next_steps.md)
+
+New work-order domain connecting to the existing inventory movement system. Tables (`job_jobs`, `job_items`, `job_item_serials`, `job_assignees`) already existed in the sandbox DB with seed data — this session built the UI on top.
+
+**DB fix (blocker):** The four `job_*` tables had RLS enabled with zero policies, which silently denies all access from the app's anon-key client. Disabled RLS on all four (migration `disable_rls_on_job_tables`) to match every other table in this no-auth prototype. Verified live against the REST API afterward — list, nested joins, and the `generate_job_number()` RPC all return data correctly.
+
+**Types** (`src/lib/types.ts`): `Job`, `JobItem`, `JobItemSerial`, `JobAssignee`, plus `JobType`/`JobStatus`/`JobItemDirection`/`JobItemStatus` unions.
+
+**Badges** (`StatusBadge.tsx`): `JobStatusBadge` (7-state flow), `JobTypeBadge` (neutral pill, 11 types), `DirectionBadge` (outbound/inbound).
+
+**`/jobs` — Jobs List page:**
+- Table: Job Number, Type, Status, Client, Location, Partner, Scheduled Date, Assignee count
+- Filters: status, job_type, client, partner, job number search
+- "Create Job" modal (same pattern as the Products add/edit modal): job type, client, location (filtered to the selected client's own locations), partner (optional), scheduled date (optional — blank keeps status `tentative`, a date sets `scheduled`), notes
+- Calls `generate_job_number()` RPC, inserts the job, redirects to its detail page
+
+**`/jobs/:id` — Job Detail page:**
+- Header: job number, type badge, status badge, client/location/partner, scheduled/completed/closed dates
+- Status controls — only the valid next transitions are shown: tentative→Schedule (date picker), scheduled→Start, in_progress→Complete/Mark Incomplete, completed→Close, incomplete→Resume/Close as Incomplete, plus a Cancel Job button available in any non-terminal state
+- Job Items table with expand/collapse to show linked serials; "Add Item" inline form (product, direction, planned quantity)
+- **Fulfillment entry** (visible only when `in_progress`/`incomplete`) — the core "inventory moves on serial entry, not on status change" mechanic:
+  - Serial-tracked job items: select a job item → select an eligible serial (outbound: `available`/`scheduled` items at a warehouse; inbound: `installed` items at this job's location) → inbound also asks for a destination warehouse + condition (reuses the same reason options as Transfer's return flow) → `MovementDateInput` → submit creates the `job_item_serials` row, the `inv_stock_movement`, updates the `inv_inventory_item` (status/location, `activateWarrantyIfNeeded` on install), and increments `job_items.fulfilled_quantity` (recomputing `planned`/`partial`/`fulfilled`)
+  - Quantity-only job items (not in the original next_steps.md spec, but the seed data has one — an SD Card item on JOB-00000001): a parallel lightweight path — warehouse + quantity instead of a serial, adjusting `inv_warehouse_stock` the same way Adjustment/Transfer's quantity mode does
+  - Single `entryDisabledReason` (same pattern as the Return/Transfer tooltip fix) covers every unmet requirement across both paths and always explains why the submit button is disabled
+- Assignees section: add/remove, lead/member role
+- Notes section: inline edit, same pencil/Check pattern as Inventory's inline fields
+
+**Nav/routing:** `/jobs` and `/jobs/:id` added to `App.tsx`; "Jobs" nav item added to the sidebar between Adjustment and Movements (`Briefcase` icon).
+
+**Not done (Section 12 — explicitly deferred):** The `ownership` column (`gp_owned`/`customer_owned`) already exists on `inv_inventory_item`. Per next_steps.md: "What to do now: nothing." Not wired into any UI — reserved for a future Airtable migration.
+
+Verified with `tsc --noEmit`, a production build, and live REST API calls against the real queries (list join, detail joins, assignees, RPC) using the anon key — all returned correct data. No browser tool available in this environment, so the actual click-through UI (status transitions, the fulfillment forms, assignee add/remove) has not been interactively tested — recommend trying the full flow (Test Scenarios 10–13 in next_steps.md) before relying on it.
+
 ### What's Left
 
 - Reporting / dashboards
 - Product image upload
 - Bulk import
 - User auth + role-based access
-- DE1 (installation pipeline) → needs Jobs + Contracts
-- Stock-out to client site → needs Jobs
+- DE1 (installation pipeline) — mostly covered by Jobs now; still needs Contracts
+- Ownership field UI — deferred until the Airtable migration (Section 12)

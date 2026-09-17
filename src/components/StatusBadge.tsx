@@ -1,4 +1,4 @@
-import type { ItemStatus, MovementType, TrackingType, Designation } from '../lib/types'
+import type { ItemStatus, MovementType, TrackingType, Designation, JobStatus, JobItemDirection } from '../lib/types'
 
 const STATUS_STYLES: Record<ItemStatus, string> = {
   available: 'bg-success-50 text-success-700',
@@ -62,6 +62,46 @@ export function DesignationBadge({ designation }: { designation: Designation }) 
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${DESIGNATION_STYLES[designation]}`}>
       {formatLabel(designation)}
+    </span>
+  )
+}
+
+const JOB_STATUS_STYLES: Record<JobStatus, string> = {
+  tentative: 'bg-neutral-100 text-neutral-500',
+  scheduled: 'bg-warning-50 text-warning-700',
+  in_progress: 'bg-info-50 text-info-700',
+  completed: 'bg-success-50 text-success-700',
+  closed: 'bg-neutral-200 text-neutral-700',
+  incomplete: 'bg-danger-50 text-danger-700',
+  cancelled: 'bg-neutral-100 text-neutral-400',
+}
+
+export function JobStatusBadge({ status }: { status: JobStatus }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${JOB_STATUS_STYLES[status]}`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
+      {formatLabel(status)}
+    </span>
+  )
+}
+
+export function JobTypeBadge({ type }: { type: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-neutral-100 text-neutral-700">
+      {formatLabel(type)}
+    </span>
+  )
+}
+
+const DIRECTION_STYLES: Record<JobItemDirection, string> = {
+  outbound: 'bg-info-50 text-info-700',
+  inbound: 'bg-[#E0F7F5] text-[#0D9488]',
+}
+
+export function DirectionBadge({ direction }: { direction: JobItemDirection }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${DIRECTION_STYLES[direction]}`}>
+      {formatLabel(direction)}
     </span>
   )
 }

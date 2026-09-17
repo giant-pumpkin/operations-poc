@@ -15,6 +15,8 @@ The following changes are live on the sandbox Supabase (`odpdnucjvgingrrwaaiv`):
 --   warranty_end_date  timestamptz
 --   designation  text NOT NULL DEFAULT 'deployment'
 --     CHECK (designation IN ('deployment', 'spare', 'maintenance'))
+--   ownership  text NOT NULL DEFAULT 'gp_owned'
+--     CHECK (ownership IN ('gp_owned', 'customer_owned'))
 
 -- inv_inventory_item.status now accepts:
 --   'available', 'scheduled', 'in_transit', 'installed', 'defect', 'in_repair', 'written_off'
@@ -282,6 +284,27 @@ ALTER TABLE inv_stock_movement
 - Sort by `movement_time` by default (when things actually happened), not `created_at`
 - The discrepancy between the two tells you how delayed the logging was
 
+### 12. Ownership Field (Priority: LOW — no UI needed yet)
+
+New column `ownership` on `inv_inventory_item` — already in the DB. Values: `gp_owned` (default), `customer_owned`.
+
+**Context:** GP's Airtable inventory currently mixes three types of records:
+
+1. **GP-owned, GP-deployed** — real inventory that GP bought and deploys. This is what the entire prototype models today.
+2. **Customer-owned, GP-managed** — the customer bought their own screen, but GP runs signage software on it. GP needs to track the hardware for service delivery purposes, but it never went through GP's warehouse, has no PO, no GP cost, no GP warranty.
+3. **Software-only subscriptions** — webplayer licenses recorded as `INV-xxxx` in Airtable. These are NOT inventory — they should migrate to the Subscriptions domain, not inventory.
+
+**Rules for `customer_owned` items:**
+
+- Skip procurement and stock-in flows (no PO, no goods receipt)
+- Created directly in the system with serial number, product, and installation location
+- No warehouse history, no cost, no GP warranty
+- Still appear in the inventory view (deployment team needs to see them)
+- Excluded from stock valuation and procurement reports
+- Excluded from stock overview counts (they were never "in stock")
+
+**What to do now: nothing.** The field exists in the DB for when migration happens. Do not wire it into the UI yet. All existing items default to `gp_owned`. When the Airtable migration (IN4) happens, customer-owned items get flagged during the migration script.
+
 ## Updated Navigation
 
 ```
@@ -381,3 +404,210 @@ After building, verify these flows work end-to-end:
    After writing off an item, verify it does NOT appear in the item selection dropdown on adjustment, transfer, or return pages. Verify it cannot be selected for bulk actions.
 9. **Metadata adjustment locations are null:**
    Change an item's designation via inline edit → check movement log → verify FROM and TO both show "—" (null). Do the same for client reallocation and status change.
+
+---
+
+## Section 6: Jobs Domain
+
+**Date:** 2026-09-16
+**Context:** Sections 1 and 2 (Inventory) are prototyped. The job schema extends the system to track work orders and connect them to inventory movements.
+
+### New Tables (already in sandbox)
+
+```sql
+job_jobs (
+  id uuid PK,
+  job_number text UNIQUE NOT NULL,        -- format: JOB-00000001 (auto via sequence)
+  job_type text NOT NULL,                  -- installation, delivery, collect, un_installation,
+                                           -- rework, survey, ma_audit, ma_preventive,
+                                           -- ma_reactive, account_setup, pre_sale
+  status text NOT NULL DEFAULT 'tentative', -- tentative, scheduled, in_progress, completed,
+                                           -- closed, incomplete, cancelled
+  client_id uuid FK → mock_cl_companies NOT NULL,
+  location_id uuid FK → mock_cl_locations NOT NULL,  -- one job = one location
+  partner_id uuid FK → mock_cl_companies NULLABLE,   -- install partner or GP's own team
+  scheduled_date timestamptz NULLABLE,     -- null for tentative jobs
+  completed_date timestamptz NULLABLE,     -- set when status → completed
+  closed_date timestamptz NULLABLE,        -- set when status → closed
+  notes text,
+  created_at timestamptz,
+  updated_at timestamptz
+)
+
+job_items (
+  id uuid PK,
+  job_id uuid FK → job_jobs NOT NULL (CASCADE),
+  product_id uuid FK → inv_product_registry NOT NULL,
+  direction text NOT NULL,                 -- 'outbound' (to site) | 'inbound' (from site)
+  planned_quantity integer NOT NULL DEFAULT 1,
+  fulfilled_quantity integer NOT NULL DEFAULT 0,
+  status text NOT NULL DEFAULT 'planned',  -- 'planned' | 'partial' | 'fulfilled'
+  created_at timestamptz
+)
+
+job_item_serials (
+  id uuid PK,
+  job_item_id uuid FK → job_items NOT NULL (CASCADE),
+  inventory_item_id uuid FK → inv_inventory_item NOT NULL,
+  entered_at timestamptz                   -- when the serial was logged
+)
+
+job_assignees (
+  id uuid PK,
+  job_id uuid FK → job_jobs NOT NULL (CASCADE),
+  profile_id uuid FK → mock_plat_profiles NOT NULL,
+  role text NOT NULL DEFAULT 'member',     -- 'lead' | 'member'
+  UNIQUE (job_id, profile_id)
+)
+```
+
+Helper function `generate_job_number()` returns next `JOB-XXXXXXXX` from `job_number_seq`.
+
+### Seed Data
+
+3 jobs seeded:
+
+- **JOB-00000001** — Installation at KFC Siam Paragon, scheduled. 2x QM55C outbound + 2x SD cards outbound. Boss assigned as lead.
+- **JOB-00000002** — Reactive maintenance at KFC Siam Paragon, tentative. 1x QM55C outbound (replacement) + 1x QM55C inbound (defective). No partner, no assignee yet.
+- **JOB-00000003** — Survey at Apple Store CentralWorld, completed. No job items (survey has no inventory impact). Boss assigned as lead.
+
+### Status Flow
+
+```
+tentative → scheduled → in_progress → completed → closed
+                                    ↘ incomplete
+                    (any) → cancelled
+```
+
+- `tentative` — job exists, no confirmed date
+- `scheduled` — date confirmed
+- `in_progress` — work is being done on-site
+- `completed` — field work done, serial numbers entered, inventory moved
+- `closed` — admin complete, sign-off received, docs uploaded
+- `incomplete` — partial work, some items may be fulfilled
+- `cancelled` — job called off
+
+### Key Design Decision: Inventory moves on serial entry, NOT on job status change
+
+When an installer enters a serial number against a job item:
+
+1. Create `job_item_serials` row linking serial to job item
+2. Immediately create `inv_stock_movement` (movement_time = user-entered date, created_at = now)
+3. Immediately update `inv_inventory_item`:
+   - Outbound items: status → `installed`, location → job's location, warranty activates on first install
+   - Inbound items: status → `available` or `defect` (depending on context), location → warehouse
+4. Increment `job_items.fulfilled_quantity`
+5. If `fulfilled_quantity == planned_quantity` → job_items.status = `fulfilled`
+6. If `fulfilled_quantity > 0 but < planned_quantity` → job_items.status = `partial`
+
+This means inventory is accurate the moment data is entered, not when the job is closed. Late data entry (installer reports on the 17th for work done on the 12th) is handled by the movement_time field.
+
+### Partial Fulfillment
+
+An incomplete job can have partial inventory movements. 2 of 3 screens installed = 2 items moved, 1 still in warehouse. The job shows `incomplete`, the job item shows `partial` (fulfilled: 2, planned: 3).
+
+Resolution paths:
+
+- Send the remaining item later, fulfill the last serial → job item → `fulfilled` → job → `completed`
+- Reduce `planned_quantity` to match reality → job item → `fulfilled` → job → `completed`
+- Close the job as incomplete — installed items stay installed, unfulfilled items stay where they are
+
+### Pages to Build
+
+#### 13. Jobs List `/jobs` (Priority: HIGH)
+
+Table view of all jobs.
+
+**Columns:** Job Number, Type (badge), Status (badge), Client, Location, Partner, Scheduled Date, Assignees
+
+**Filters:** status, job_type, client, partner
+
+**Actions:**
+
+- "Create Job" button → form
+- Click row to open job detail
+
+#### 14. Job Detail `/jobs/:id` (Priority: HIGH)
+
+Full job view with sections:
+
+**Header:** Job number, type badge, status badge, client, location, partner, dates
+
+**Status controls:** Buttons to advance status along the flow. Only valid transitions enabled:
+
+- Tentative: "Schedule" button (requires date)
+- Scheduled: "Start" button
+- In Progress: "Complete" or "Mark Incomplete"
+- Completed: "Close"
+- Incomplete: "Resume" (back to in_progress) or "Close as Incomplete"
+
+**Job Items section:**
+
+- Table of job_items: Product, Direction (outbound/inbound badge), Planned, Fulfilled, Status
+- "Add Item" button for adding more items to the job
+- Each row expandable to show linked serials from job_item_serials
+
+**Serial Entry section** (visible when job is `in_progress` or `incomplete`):
+
+- Select a job item (outbound or inbound)
+- Enter serial number (searchable by existing inventory items)
+  - For outbound: only show items matching the product, status `available` or `scheduled`, at a warehouse
+  - For inbound: only show items matching the product, status `installed`, at this job's location
+- Enter movement date (required, blank default — same MovementDateInput component)
+- Submit → triggers the full chain (serial link + inventory update + stock movement + fulfilled_quantity increment)
+- Show confirmation: "Serial [X] linked to [product]. Inventory updated: [warehouse] → [location]"
+
+**Assignees section:**
+
+- List of assigned profiles with role
+- Add/remove assignees
+
+**Notes section:**
+
+- Free text, editable
+
+#### 15. Create Job Form (Priority: HIGH)
+
+Form fields:
+
+- Job type (dropdown of all types)
+- Client (searchable dropdown → mock_cl_companies)
+- Location (searchable dropdown → mock_cl_locations, filtered to selected client's locations)
+- Partner (searchable dropdown → mock_cl_companies, nullable)
+- Scheduled date (optional — leave blank for tentative)
+- Notes (optional)
+
+On submit:
+
+- Generate job_number via `generate_job_number()`
+- Status = `tentative` if no date, `scheduled` if date provided
+- Redirect to job detail page
+
+Job items are added after creation, on the detail page — not in the create form. Keeps creation simple.
+
+### Job Type → Inventory Impact Reference
+
+| Job Type        | Typical Direction | Job Items Required?                 |
+| --------------- | ----------------- | ----------------------------------- |
+| installation    | outbound          | Yes                                 |
+| delivery        | outbound          | Yes                                 |
+| collect         | inbound           | Yes                                 |
+| un_installation | inbound           | Yes                                 |
+| ma_reactive     | both or none      | Optional — partner may fix in place |
+| ma_preventive   | maybe outbound    | Optional                            |
+| rework          | maybe both        | Optional                            |
+| survey          | none              | No                                  |
+| ma_audit        | none              | No                                  |
+| account_setup   | none              | No                                  |
+| pre_sale        | none              | No                                  |
+
+### Test Scenarios
+
+10. **Full installation flow:**
+    Create an installation job for KFC Siam Paragon → add 2x QM55C outbound → schedule → start → enter serial numbers one at a time with different movement dates → verify each serial immediately moves inventory (status → installed, location → KFC Siam Paragon, warranty activates) → verify job item fulfilled_quantity increments → complete → close
+11. **Reactive maintenance swap:**
+    Create a ma_reactive job → add 1x QM55C outbound + 1x QM55C inbound → enter the replacement serial (outbound) → verify it installs → enter the defective serial (inbound) → verify it returns to warehouse with status defect → complete
+12. **Partial installation:**
+    Create installation job with 3x QM55C → enter 2 serials → mark incomplete → verify job_item status = partial, fulfilled = 2, planned = 3 → verify the 2 installed screens are correctly tracked → later enter 3rd serial → verify job_item → fulfilled → complete job
+13. **No-inventory job:**
+    Create a survey job → no job items → schedule → start → complete → close → verify no inventory movements created
