@@ -464,7 +464,8 @@ Quantity-only stock (`inv_warehouse_stock`) previously had no allocation granula
 
 ### Commits (session 7)
 ```
-(pending)
+7f003a0 Fix Transfer movement type and status for client-to-client moves
+f6eceb9 Add allocated_client_id and designation to quantity-only stock
 ```
 
 ### What's Left
