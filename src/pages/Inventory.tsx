@@ -141,9 +141,15 @@ export default function Inventory() {
       const targetId = reallocateTarget || null
       const targetName = targetId ? companies.find(c => c.id === targetId)?.name : 'Unallocated'
 
-      for (const id of checkedIds) {
-        const item = items.find(i => i.id === id)
-        if (!item) continue
+      const toChange = [...checkedIds]
+        .map(id => items.find(i => i.id === id))
+        .filter((i): i is InventoryItem => !!i && ((i.allocated_client_id ?? null) !== targetId))
+      if (toChange.length === 0) {
+        toast('warning', `All selected items are already allocated to ${targetName}`)
+        return
+      }
+
+      for (const item of toChange) {
         const oldClient = (item.allocated_client as unknown as Company | null)?.name ?? 'Unallocated'
 
         const { error: updateErr } = await supabase

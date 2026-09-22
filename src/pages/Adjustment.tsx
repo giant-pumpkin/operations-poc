@@ -6,6 +6,7 @@ import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
 import MultiSelectInfoTable from '../components/MultiSelectInfoTable'
 import MovementDateInput from '../components/MovementDateInput'
+import { findChangedItems } from '../lib/staleCheck'
 
 type Mode = 'tracked' | 'untracked'
 type UntrackedAction = 'adjust' | 'reallocate'
@@ -214,6 +215,14 @@ export default function Adjustment() {
 
     setSubmittingTracked(true)
     try {
+      const changed = await findChangedItems(selectedItems)
+      if (changed.length > 0) {
+        toast('error', `${changed[0]}${changed.length > 1 ? ` (+${changed.length - 1} more)` : ''}. List refreshed — please review.`)
+        setSelectedItemIds([])
+        await loadData()
+        return
+      }
+
       const now = new Date().toISOString()
       const moveTime = movementTime.toISOString()
 
@@ -306,6 +315,14 @@ export default function Adjustment() {
 
     setSubmittingTracked(true)
     try {
+      const changed = await findChangedItems(selectedItems)
+      if (changed.length > 0) {
+        toast('error', `${changed[0]}${changed.length > 1 ? ` (+${changed.length - 1} more)` : ''}. List refreshed — please review.`)
+        setSelectedItemIds([])
+        await loadData()
+        return
+      }
+
       const now = new Date().toISOString()
       const moveTime = movementTime.toISOString()
       let count = 0
@@ -354,6 +371,10 @@ export default function Adjustment() {
   }
 
   async function handleUntrackedSubmit() {
+    if (newQty.trim() === '') {
+      toast('error', 'Enter the corrected quantity')
+      return
+    }
     const correctedQty = Number(newQty)
     if (!selectedProductId || !selectedPoolId || !qtyReason.trim() || isNaN(correctedQty) || correctedQty < 0 || !movementDateUntracked) {
       toast('error', 'Please fill in all fields with a valid quantity')
@@ -475,7 +496,7 @@ export default function Adjustment() {
     }
   }
 
-  const diff = stockRecord ? Number(newQty) - stockRecord.quantity : Number(newQty) || 0
+  const diff = newQty.trim() === '' ? 0 : (stockRecord ? Number(newQty) - stockRecord.quantity : Number(newQty) || 0)
 
   return (
     <div className="p-6 max-w-2xl">
@@ -669,7 +690,7 @@ export default function Adjustment() {
                     type="text"
                     inputMode="numeric"
                     value={newQty}
-                    onChange={e => setNewQty(e.target.value.replace(/\D/g, ''))}
+                    onChange={e => setNewQty(e.target.value.replace(/\D/g, '').slice(0, 7))}
                     className="w-full h-8 px-2 rounded-md border border-neutral-200 bg-neutral-0 text-xl font-mono font-semibold text-neutral-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
@@ -715,7 +736,7 @@ export default function Adjustment() {
                     type="text"
                     inputMode="numeric"
                     value={reallocateQty}
-                    onChange={e => setReallocateQty(e.target.value.replace(/\D/g, ''))}
+                    onChange={e => setReallocateQty(e.target.value.replace(/\D/g, '').slice(0, 7))}
                     className="w-32 h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>

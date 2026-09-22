@@ -62,6 +62,13 @@ export default function Products() {
   const [activeFilter, setActiveFilter] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [showForm, setShowForm] = useState(false)
+
+  useEffect(() => {
+    if (!showForm) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowForm(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showForm])
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [formData, setFormData] = useState<Partial<Product>>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -174,17 +181,17 @@ export default function Products() {
   }
 
   const handleSave = async () => {
-    if (!formData.sku || !formData.name || !formData.tracking_type) {
+    if (!formData.sku?.trim() || !formData.name?.trim() || !formData.tracking_type) {
       toast('error', 'SKU, name, and tracking type are required')
       return
     }
     setSaving(true)
 
     const payload = {
-      sku: formData.sku,
-      name: formData.name,
-      manufacturer: formData.manufacturer || null,
-      model: formData.model || null,
+      sku: formData.sku.trim().toUpperCase(),
+      name: formData.name.trim(),
+      manufacturer: formData.manufacturer?.trim() || null,
+      model: formData.model?.trim() || null,
       tracking_type: formData.tracking_type,
       category: formData.category || null,
       player: formData.player ?? false,
@@ -197,7 +204,7 @@ export default function Products() {
         .update({ ...payload, updated_at: new Date().toISOString() })
         .eq('id', editingProduct.id)
       if (error) {
-        toast('error', `Update failed: ${error.message}`)
+        toast('error', error.code === '23505' ? `SKU ${payload.sku} is already used by another product` : `Update failed: ${error.message}`)
       } else {
         toast('success', `${payload.name} updated`)
         setShowForm(false)
@@ -208,7 +215,7 @@ export default function Products() {
         .from('inv_product_registry')
         .insert(payload)
       if (error) {
-        toast('error', `Create failed: ${error.message}`)
+        toast('error', error.code === '23505' ? `A product with SKU ${payload.sku} already exists` : `Create failed: ${error.message}`)
       } else {
         toast('success', `${payload.name} created`)
         setShowForm(false)

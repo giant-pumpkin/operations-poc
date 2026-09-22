@@ -45,6 +45,13 @@ export default function Jobs() {
   const [search, setSearch] = useState('')
 
   const [showForm, setShowForm] = useState(false)
+
+  useEffect(() => {
+    if (!showForm) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowForm(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showForm])
   const [formType, setFormType] = useState<JobType | ''>('')
   const [formClientId, setFormClientId] = useState('')
   const [formLocationType, setFormLocationType] = useState('')

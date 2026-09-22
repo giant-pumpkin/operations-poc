@@ -7,6 +7,7 @@ import SearchableSelect from '../components/SearchableSelect'
 import { StatusBadge } from '../components/StatusBadge'
 import { activateWarrantyIfNeeded } from '../lib/warranty'
 import MovementDateInput from '../components/MovementDateInput'
+import { findChangedItems } from '../lib/staleCheck'
 import { X } from 'lucide-react'
 
 type Mode = 'tracked' | 'untracked'
@@ -181,6 +182,15 @@ export default function Transfer() {
     setSubmitting(true)
     try {
       if (mode === 'tracked') {
+        const changed = await findChangedItems(selectedItems)
+        if (changed.length > 0) {
+          toast('error', `${changed[0]}${changed.length > 1 ? ` (+${changed.length - 1} more)` : ''}. List refreshed — please review.`)
+          setSelectedItemIds([])
+          setShowConfirm(false)
+          await loadData()
+          return
+        }
+
         const now = new Date().toISOString()
         const dest = destinations.find(d => d.id === destinationId)!
 
@@ -400,10 +410,7 @@ export default function Transfer() {
                   type="text"
                   inputMode="numeric"
                   value={transferQty}
-                  onChange={e => {
-                    const v = e.target.value.replace(/\D/g, '')
-                    setTransferQty(v)
-                  }}
+                  onChange={e => setTransferQty(e.target.value.replace(/\D/g, '').slice(0, 7))}
                   className="w-32 h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>

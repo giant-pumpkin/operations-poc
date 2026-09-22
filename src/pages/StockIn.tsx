@@ -71,8 +71,9 @@ export default function StockIn() {
   }
 
   async function handleSerialSubmit() {
+    // Accept one-per-line, comma/semicolon separated, or tab separated (pasted from a sheet)
     const rawLines = serials
-      .split('\n')
+      .split(/[\n\r,;\t]+/)
       .map(s => s.trim().toUpperCase())
       .filter(Boolean)
     const lines = [...new Set(rawLines)]
@@ -295,7 +296,7 @@ export default function StockIn() {
                 />
                 {serials.trim() && (
                   <p className="text-[12px] text-neutral-500 mt-1">
-                    {serials.split('\n').filter(s => s.trim()).length} serial number(s)
+                    {new Set(serials.split(/[\n\r,;\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean)).size} unique serial number(s)
                   </p>
                 )}
               </div>
@@ -335,7 +336,7 @@ export default function StockIn() {
                   type="text"
                   inputMode="numeric"
                   value={quantity}
-                  onChange={e => setQuantity(e.target.value.replace(/\D/g, ''))}
+                  onChange={e => setQuantity(e.target.value.replace(/\D/g, '').slice(0, 7))}
                   placeholder="Enter quantity"
                   className={inputClass}
                 />
