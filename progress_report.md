@@ -515,6 +515,53 @@ Ran a three-slice audit (operations pages / Jobs domain / read views + shared co
 
 Key DB-side gaps: no `CHECK (quantity >= 0)` on `inv_warehouse_stock`, no `fulfilled_quantity <= planned_quantity` on `job_items`, no unique on `job_item_serials (job_item_id, inventory_item_id)`, RLS disabled everywhere.
 
+### Audit fixes — all applied this session
+
+**1. Stale-quantity writes and unchecked errors** (`52d9db9`)
+Transfer/Adjustment/JobDetail were re-reading the pool for the *check* but still writing `staleValue − qty`. Two tabs could fabricate stock. Every warehouse-stock and job_items write now checks its error; job fulfillment validates the pool before writing the ledger row; serial entry re-validates the item and rejects duplicate links.
+
+**2. DB integrity constraints** (migration `add_inventory_integrity_constraints`)
+`quantity >= 0` on warehouse stock · `quantity > 0` and `from <> to` on movements · `written_off ⇒ location IS NULL` · `planned > 0` and `fulfilled <= planned` on job items · unique `(job_item_id, inventory_item_id)` on serial links. The database is now the backstop for every rule the app enforces.
+
+**3. Atomic Postgres functions** (`195148a`, migration `add_atomic_inventory_rpcs`)
+Every multi-step write is now one transaction with `FOR UPDATE` row locks:
+
+| Function | Replaces |
+|----------|----------|
+| `stock_in_quantity` | StockIn quantity mode |
+| `transfer_quantity_stock` | Transfer quantity mode |
+| `reallocate_quantity_stock` | Adjustment → Reallocate (quantity) |
+| `adjust_quantity_stock` | Adjustment → Quantity Adjustment |
+| `fulfill_job_quantity` | JobDetail quantity fulfillment |
+| `link_job_serial` | JobDetail serial fulfillment (5 writes → 1 call) |
+
+`link_job_serial` also enforces rules the app had skipped: outbound item must be unallocated or allocated to the job's client; deploying sets `allocated_client_id` to the client and `designation` to `deployment` (spec 8f); warranty starts on the **movement date**; `defect` items at the site can be collected inbound. Pool lookup no longer hardcodes `deployment` — it prefers the client's pool, any designation, deployment first.
+
+**4. Status transition rules** (`af3683e`)
+Adjustment's status picker offers only Available / In Transit / Defect / In Repair (no more Written Off or Installed by hand). A transition matrix plus a location rule (Available ⇒ warehouse, In Repair ⇒ repair center) run per selected item and the submit tooltip names the first blocker with its serial. Transfer refuses to install a Defect/In Repair unit at a client site.
+
+**5. Job lifecycle rules** (`af3683e`)
+Status updates apply only from the status the tab last saw (`.eq('status', current)`) and reload on conflict. Complete is blocked while any item is unfulfilled; Cancel is blocked once inventory has moved and is no longer offered on completed jobs; items can't be added/edited/deleted on closed or cancelled jobs.
+
+**6. Smaller correctness fixes** (`af3683e`)
+Warranty edit recomputes the end date · inline edits disabled on written-off items · Stock In dedupes and upper-cases serials, names any already in inventory · Products excludes written-off from counts and formats them · Movements filters by local-day boundaries and tiebreaks on `created_at` · Transfer preserves the return reason in notes · reallocation notes record source and destination pool · all dates go through `lib/format.ts` (dd-MMM-yyyy).
+
+### Browser-verified this session
+
+Stock In (dedupe + uppercase + backdated) → Adjustment blocker tooltip (Available → In Repair rejected with reason) → valid Defect change → quantity Reallocate via RPC (10 → 7 + 3 KFC) → Create Job → Start → Add Item → Complete blocked with tooltip → Link Serial via RPC (defect unit excluded from picker; item installed, allocated, warranty dated to install) → Cancel blocked with tooltip → Complete → Close. All ledger rows checked in SQL after each step.
+
+### Not fixed (documented, deliberate or deferred)
+
+- Stock Overview: product with demand but no items doesn't appear; quantity-only products get no committed column; client-wide committed shown on every designation sub-row. Known since Session 5.
+- `scheduled` is counted in Stock totals but has no column — dead status, nothing sets it any more.
+- Tracked (serial) write-off / status-change / reallocate loops are still app-side, sequential per item. Low risk now that DB constraints exist; candidate for an RPC later.
+- No auth / RLS. Anyone with the URL can write. Next hardening step.
+- No movement reversal mechanism yet.
+
+### Dev server note
+
+`npm run dev &` suspends Vite (it reads the terminal for shortcuts → SIGTTIN). Use the `dev` launch config in `.claude/launch.json`, or `npm run dev < /dev/null &`.
+
 ### What's Left
 
 - Reporting / dashboards
