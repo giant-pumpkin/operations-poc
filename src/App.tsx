@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ToastProvider } from './components/Toast'
+import { ProfileProvider } from './lib/profile'
 import Layout from './components/Layout'
 import Products from './pages/Products'
 import Inventory from './pages/Inventory'
@@ -14,6 +15,7 @@ import JobDetail from './pages/JobDetail'
 export default function App() {
   return (
     <ToastProvider>
+      <ProfileProvider>
       <BrowserRouter>
         <Routes>
           <Route element={<Layout />}>
@@ -30,6 +32,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      </ProfileProvider>
     </ToastProvider>
   )
 }

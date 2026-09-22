@@ -64,7 +64,7 @@ export default function Jobs() {
 
   useEffect(() => {
     fetchJobs()
-    supabase.from('mock_cl_companies').select('*').order('name').then(({ data }) => {
+    supabase.from('mock_cl_companies').select('*').in('status', ['client', 'partner']).order('name').then(({ data }) => {
       if (data) setCompanies(data as unknown as Company[])
     })
     supabase.from('mock_cl_locations').select('*').order('name').then(({ data }) => {

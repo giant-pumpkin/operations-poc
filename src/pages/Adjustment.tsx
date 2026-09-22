@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
+import { useProfile } from '../lib/profile'
 import type { Product, Location, Company, InventoryItem, WarehouseStock, ItemStatus } from '../lib/types'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
@@ -75,6 +76,7 @@ function statusChangeBlocker(item: InventoryItem, target: ItemStatus): string | 
 
 export default function Adjustment() {
   const { toast } = useToast()
+  const { profileId: activeProfileId } = useProfile()
   const [mode, setMode] = useState<Mode>('tracked')
 
   // tracked
@@ -233,7 +235,7 @@ export default function Adjustment() {
             inventory_item_id: item.id,
             from_location: item.location_id,
             to_location: null,
-            performed_by: BOSS_PROFILE_ID,
+            performed_by: activeProfileId,
             movement_type: 'adjustment',
             quantity: 1,
             movement_time: moveTime,
@@ -253,7 +255,7 @@ export default function Adjustment() {
             inventory_item_id: item.id,
             from_location: null,
             to_location: null,
-            performed_by: BOSS_PROFILE_ID,
+            performed_by: activeProfileId,
             movement_type: 'adjustment',
             quantity: 1,
             movement_time: moveTime,
@@ -339,7 +341,7 @@ export default function Adjustment() {
           inventory_item_id: item.id,
           from_location: null,
           to_location: null,
-          performed_by: BOSS_PROFILE_ID,
+          performed_by: activeProfileId,
           movement_type: 'adjustment',
           quantity: 1,
           movement_time: moveTime,
@@ -413,7 +415,7 @@ export default function Adjustment() {
         p_pool_id: stockRecord.id,
         p_new_qty: correctedQty,
         p_movement_time: movementTime.toISOString(),
-        p_performed_by: BOSS_PROFILE_ID,
+        p_performed_by: activeProfileId,
         p_notes: `Adjustment (${diff > 0 ? '+' : ''}${diff}): ${qtyReason.trim()}`,
       })
       if (error) throw error
@@ -472,7 +474,7 @@ export default function Adjustment() {
         p_dest_designation: destDesignation,
         p_qty: qty,
         p_movement_time: movementTime.toISOString(),
-        p_performed_by: BOSS_PROFILE_ID,
+        p_performed_by: activeProfileId,
         p_notes: `Reallocation (${qty}×) from ${srcClientName} · ${srcDesignation} to ${destClientName} · ${destDesignation}: ${qtyReason.trim()}`,
       })
       if (error) throw error

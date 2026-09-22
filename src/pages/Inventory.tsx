@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
+import { useProfile } from '../lib/profile'
 import type { InventoryItem, Product, Location, Company, StockMovement, Designation } from '../lib/types'
 import { StatusBadge, MovementBadge, DesignationBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
@@ -28,6 +29,7 @@ function warrantyLabel(item: InventoryItem): { text: string; style: string } {
 
 export default function Inventory() {
   const { toast } = useToast()
+  const { profileId: activeProfileId } = useProfile()
   const [items, setItems] = useState<InventoryItem[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [locations, setLocations] = useState<Location[]>([])
@@ -74,7 +76,7 @@ export default function Inventory() {
         .order('created_at', { ascending: false }),
       supabase.from('inv_product_registry').select('*').eq('tracking_type', 'serial_tracked').order('name'),
       supabase.from('mock_cl_locations').select('*').order('name'),
-      supabase.from('mock_cl_companies').select('*').order('name'),
+      supabase.from('mock_cl_companies').select('*').eq('status', 'client').order('name'),
     ])
     if (itemsRes.data) setItems(itemsRes.data as unknown as InventoryItem[])
     if (productsRes.data) setProducts(productsRes.data)
@@ -163,7 +165,7 @@ export default function Inventory() {
           inventory_item_id: id,
           from_location: null,
           to_location: null,
-          performed_by: BOSS_PROFILE_ID,
+          performed_by: activeProfileId,
           movement_type: 'adjustment',
           quantity: 1,
           movement_time: now,
@@ -204,7 +206,7 @@ export default function Inventory() {
           inventory_item_id: id,
           from_location: null,
           to_location: null,
-          performed_by: BOSS_PROFILE_ID,
+          performed_by: activeProfileId,
           movement_type: 'adjustment',
           quantity: 1,
           movement_time: now,
@@ -253,7 +255,7 @@ export default function Inventory() {
         inventory_item_id: selectedItem.id,
         from_location: null,
         to_location: null,
-        performed_by: BOSS_PROFILE_ID,
+        performed_by: activeProfileId,
         movement_type: 'adjustment',
         quantity: 1,
         movement_time: now,
@@ -354,7 +356,7 @@ export default function Inventory() {
         inventory_item_id: selectedItem.id,
         from_location: null,
         to_location: null,
-        performed_by: BOSS_PROFILE_ID,
+        performed_by: activeProfileId,
         movement_type: 'adjustment',
         quantity: 1,
         movement_time: now,

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
+import { useProfile } from '../lib/profile'
 import type {
   Job, JobItem, JobAssignee, InventoryItem, Product, Location, Profile, JobStatus,
 } from '../lib/types'
@@ -38,6 +39,7 @@ export default function JobDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { toast } = useToast()
+  const { profileId: activeProfileId } = useProfile()
 
   const [job, setJob] = useState<Job | null>(null)
   const [jobItems, setJobItems] = useState<JobItem[]>([])
@@ -330,7 +332,7 @@ export default function JobDetail() {
         p_job_item_id: entryJobItem.id,
         p_inventory_item_id: entrySerialItemId,
         p_movement_time: movementTime.toISOString(),
-        p_performed_by: BOSS_PROFILE_ID,
+        p_performed_by: activeProfileId,
         p_dest_warehouse_id: direction === 'inbound' ? entryWarehouseId : null,
         p_condition: direction === 'inbound' ? entryReason : null,
       })
@@ -365,7 +367,7 @@ export default function JobDetail() {
         p_warehouse_id: entryWarehouseId,
         p_qty: qty,
         p_movement_time: movementTime.toISOString(),
-        p_performed_by: BOSS_PROFILE_ID,
+        p_performed_by: activeProfileId,
       })
       if (error) throw error
 

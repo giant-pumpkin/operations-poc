@@ -8,7 +8,17 @@ import {
   ClipboardMinus,
   ArrowLeftRight,
   Briefcase,
+  UserRound,
+  ChevronDown,
 } from 'lucide-react'
+import { useProfile } from '../lib/profile'
+
+const ROLE_LABEL: Record<string, string> = {
+  admin: 'Admin',
+  finance: 'Finance',
+  sales: 'Sales',
+  deployment: 'Deployment',
+}
 
 const NAV_ITEMS = [
   { to: '/products', label: 'Products', icon: Package },
@@ -33,6 +43,8 @@ function AsteriskLogo({ className }: { className?: string }) {
 }
 
 export default function Layout() {
+  const { profiles, profile, profileId, setProfileId } = useProfile()
+
   return (
     <div className="flex h-screen">
       <aside className="w-56 bg-neutral-800 text-neutral-0 flex flex-col shrink-0">
@@ -60,8 +72,22 @@ export default function Layout() {
           ))}
         </nav>
 
-        <div className="px-5 py-4 border-t border-neutral-700/50 text-[11px] text-neutral-500">
-          Inventory Prototype
+        <div className="px-3 py-3 border-t border-neutral-700/50">
+          <label className="block px-2 mb-1 text-[10px] uppercase tracking-[0.06em] text-neutral-500">Acting as</label>
+          <div className="relative">
+            <UserRound size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+            <select
+              value={profileId}
+              onChange={e => setProfileId(e.target.value)}
+              className="w-full h-9 pl-8 pr-7 rounded-lg bg-neutral-700/60 border border-neutral-700 text-[13px] text-neutral-100 appearance-none focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              {profiles.map(p => (
+                <option key={p.id} value={p.id}>{p.full_name} · {ROLE_LABEL[p.role] ?? p.role}</option>
+              ))}
+            </select>
+            <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+          </div>
+          <div className="px-2 mt-2 text-[11px] text-neutral-500 truncate">{profile?.email ?? 'Inventory Prototype'}</div>
         </div>
       </aside>
 

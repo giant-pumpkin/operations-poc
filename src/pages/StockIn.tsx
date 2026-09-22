@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
+import { useProfile } from '../lib/profile'
 import type { Product, Location, Company } from '../lib/types'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
@@ -22,6 +23,7 @@ const DESIGNATION_OPTIONS = [
 
 export default function StockIn() {
   const { toast } = useToast()
+  const { profileId: activeProfileId } = useProfile()
   const [mode, setMode] = useState<Mode>('serial_tracked')
   const [products, setProducts] = useState<Product[]>([])
   const [warehouses, setWarehouses] = useState<Location[]>([])
@@ -52,7 +54,7 @@ export default function StockIn() {
   useEffect(() => {
     Promise.all([
       supabase.from('mock_cl_locations').select('*').eq('type', 'warehouse').order('name'),
-      supabase.from('mock_cl_companies').select('*').order('name'),
+      supabase.from('mock_cl_companies').select('*').eq('status', 'client').order('name'),
     ]).then(([locRes, compRes]) => {
       if (locRes.data) setWarehouses(locRes.data as unknown as Location[])
       if (compRes.data) setCompanies(compRes.data as unknown as Company[])
@@ -124,7 +126,7 @@ export default function StockIn() {
         inventory_item_id: item.id,
         from_location: null,
         to_location: warehouseId,
-        performed_by: BOSS_PROFILE_ID,
+        performed_by: activeProfileId,
         movement_type: 'stock_in' as const,
         quantity: 1,
         movement_time: movementTime.toISOString(),
@@ -168,7 +170,7 @@ export default function StockIn() {
         p_designation: designation,
         p_qty: qty,
         p_movement_time: movementTime.toISOString(),
-        p_performed_by: BOSS_PROFILE_ID,
+        p_performed_by: activeProfileId,
         p_notes: null,
       })
       if (error) throw error

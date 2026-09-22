@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { supabase, BOSS_PROFILE_ID } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
+import { useProfile } from '../lib/profile'
 import type { InventoryItem, Product, Location, WarehouseStock, ItemStatus, MovementType } from '../lib/types'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
@@ -54,6 +55,7 @@ function installBlocker(item: InventoryItem, destType: Location['type'] | undefi
 
 export default function Transfer() {
   const { toast } = useToast()
+  const { profileId: activeProfileId } = useProfile()
   const [mode, setMode] = useState<Mode>('tracked')
 
   // tracked state
@@ -205,7 +207,7 @@ export default function Transfer() {
             inventory_item_id: item.id,
             from_location: item.location_id,
             to_location: destinationId,
-            performed_by: BOSS_PROFILE_ID,
+            performed_by: activeProfileId,
             movement_type: movementType,
             quantity: 1,
             movement_time: movementTime,
@@ -233,7 +235,7 @@ export default function Transfer() {
           p_dest_location_id: destinationId,
           p_qty: qty,
           p_movement_time: movementTime,
-          p_performed_by: BOSS_PROFILE_ID,
+          p_performed_by: activeProfileId,
           p_notes: notes.trim() || null,
         })
         if (error) throw error
