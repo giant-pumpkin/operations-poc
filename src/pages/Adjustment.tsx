@@ -323,6 +323,23 @@ export default function Adjustment() {
 
     setSubmittingUntracked(true)
     try {
+      // Re-fetch current quantity to guard against stale state
+      if (stockRecord) {
+        const { data: fresh } = await supabase.from('inv_warehouse_stock').select('quantity').eq('id', stockRecord.id).single()
+        if (fresh && correctedQty < 0) {
+          toast('error', 'Quantity cannot be negative')
+          setSubmittingUntracked(false)
+          return
+        }
+        if (fresh && fresh.quantity !== currentQty) {
+          toast('error', `Stock has changed (now ${fresh.quantity}). Please review and try again.`)
+          setStockRecord({ ...stockRecord, quantity: fresh.quantity })
+          setNewQty(String(fresh.quantity))
+          setSubmittingUntracked(false)
+          return
+        }
+      }
+
       const now = new Date().toISOString()
       const locationId = stockRecord?.location_id ?? selectedWarehouseId
 
@@ -392,6 +409,15 @@ export default function Adjustment() {
 
     setSubmittingUntracked(true)
     try {
+      // Re-fetch to guard against stale quantity
+      const { data: fresh } = await supabase.from('inv_warehouse_stock').select('quantity').eq('id', stockRecord.id).single()
+      if (fresh && qty > fresh.quantity) {
+        toast('error', `Only ${fresh.quantity} units available in source pool (was ${stockRecord.quantity})`)
+        setStockRecord({ ...stockRecord, quantity: fresh.quantity })
+        setSubmittingUntracked(false)
+        return
+      }
+
       const now = new Date().toISOString()
       const locationId = stockRecord.location_id
 

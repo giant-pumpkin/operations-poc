@@ -202,6 +202,14 @@ export default function Transfer() {
         const qty = Number(transferQty)
         const now = new Date().toISOString()
 
+        // Re-fetch to guard against stale quantity
+        const { data: freshStock } = await supabase.from('inv_warehouse_stock').select('quantity').eq('id', sourceStock!.id).single()
+        if (freshStock && qty > freshStock.quantity) {
+          toast('error', `Only ${freshStock.quantity} units available (was ${sourceStock!.quantity}). Please review and try again.`)
+          setSubmitting(false)
+          return
+        }
+
         const srcClientId = sourceStock!.allocated_client_id ?? null
         const srcDesignation = sourceStock!.designation ?? 'deployment'
 

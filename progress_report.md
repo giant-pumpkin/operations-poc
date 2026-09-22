@@ -483,6 +483,38 @@ Added "Reallocate" action to the Adjustment page's Quantity Items tab, allowing 
 | `Adjustment.tsx` | Serial Items: multi-select dropdown, Reallocate action, `allocated_client` join |
 | `MultiSelectInfoTable.tsx` | Reusable table component showing Serial, Product, Client, Status, Location columns |
 
+### Stock Overview redesign — attempted and reverted
+
+Handed `stock-view-spec.md` + a screenshot to Claude Design, received a unified-table redesign (KPI strip, flat pool rows, client multi-select, group-by tabs). Implemented it in full, browser-tested, then reverted at the user's request — the existing two-table layout stays. The spec file remains committed for future reference.
+
+---
+
+## Session 9 — Data reset, stock validation guards, full codebase audit (2026-09-22)
+
+### Why
+
+Reviewing the Manhattan Mount movement history showed a write-off and a reallocation dated *before* the stock-in that created the units — the system let adjustments run against pools with no stock. A real ERP rejects that. Decision: reset all transactional data and add stock validation before every quantity-decrementing write.
+
+### Data reset
+
+All rows cleared from `job_item_serials`, `job_items`, `job_assignees`, `job_jobs`, `inv_stock_movement`, `inv_inventory_item`, `inv_warehouse_stock`. Products, companies, locations, profiles untouched. (Run by the user in the SQL editor — the MCP tool refused the mass delete.)
+
+### Stock validation guards (first pass)
+
+| File | Change |
+|------|--------|
+| `Adjustment.tsx` | Quantity adjustment re-fetches the pool before writing; rejects if stock changed since load. Reallocate re-fetches and rejects if source has fewer than requested. |
+| `Transfer.tsx` | Quantity transfer re-fetches source pool at submit; rejects if insufficient. |
+| `JobDetail.tsx` | Outbound quantity fulfillment re-fetches stock; rejects if insufficient or if no pool exists (previously skipped the decrement silently). |
+
+**Known gap found in the audit below:** these guards compare against the fresh value but the decrement still writes `stale − qty`. Fixed in the follow-up commits this session.
+
+### Full codebase audit
+
+Ran a three-slice audit (operations pages / Jobs domain / read views + shared components) plus a DB constraint review. Headline: the data model and ledger design are sound; the bugs are plumbing — unchecked errors, stale-state writes, missing DB constraints, and business rules enforced only in the UI. 22 findings across four tiers; the fix list and order are recorded in the commits that follow.
+
+Key DB-side gaps: no `CHECK (quantity >= 0)` on `inv_warehouse_stock`, no `fulfilled_quantity <= planned_quantity` on `job_items`, no unique on `job_item_serials (job_item_id, inventory_item_id)`, RLS disabled everywhere.
+
 ### What's Left
 
 - Reporting / dashboards

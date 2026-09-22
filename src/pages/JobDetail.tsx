@@ -424,9 +424,19 @@ export default function JobDetail() {
       }
 
       if (direction === 'outbound') {
-        if (stock) {
-          await supabase.from('inv_warehouse_stock').update({ quantity: stock.quantity - qty, updated_at: now }).eq('id', stock.id)
+        if (!stock) {
+          toast('error', 'No stock pool found for this product')
+          setEntrySubmitting(false)
+          return
         }
+        // Re-fetch to guard against stale quantity
+        const { data: freshStock } = await supabase.from('inv_warehouse_stock').select('quantity').eq('id', stock.id).single()
+        if (!freshStock || qty > freshStock.quantity) {
+          toast('error', `Insufficient stock: only ${freshStock?.quantity ?? 0} available`)
+          setEntrySubmitting(false)
+          return
+        }
+        await supabase.from('inv_warehouse_stock').update({ quantity: freshStock.quantity - qty, updated_at: now }).eq('id', stock.id)
       } else {
         if (stock) {
           await supabase.from('inv_warehouse_stock').update({ quantity: stock.quantity + qty, updated_at: now }).eq('id', stock.id)
