@@ -122,6 +122,7 @@ export default function Jobs() {
     try {
       const { data: jobNumber, error: numErr } = await supabase.rpc('generate_job_number')
       if (numErr) throw numErr
+      if (!jobNumber) throw new Error('Could not generate a job number')
 
       const now = new Date().toISOString()
       const { data: inserted, error } = await supabase

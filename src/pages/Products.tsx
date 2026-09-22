@@ -6,6 +6,16 @@ import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import { Plus, X, Search, Pencil } from 'lucide-react'
 import SearchableSelect from '../components/SearchableSelect'
+import { formatDateTime } from '../lib/format'
+
+const STOCK_STATUS_ORDER = ['available', 'in_transit', 'installed', 'defect', 'in_repair', 'scheduled']
+
+function summarizeCounts(counts: Record<string, number>): string {
+  const parts = STOCK_STATUS_ORDER
+    .filter(s => counts[s])
+    .map(s => `${counts[s]} ${s.replace(/_/g, ' ')}`)
+  return parts.length ? parts.join(', ') : '0'
+}
 
 const CATEGORIES = [
   'Adapters', 'Cable', 'Ceiling Mount', 'Data storage', 'Demo', 'Display',
@@ -79,6 +89,7 @@ export default function Products() {
     const { data: items } = await supabase
       .from('inv_inventory_item')
       .select('product_id, status')
+      .neq('status', 'written_off')
 
     // Fetch warehouse stock for quantity-only
     const { data: stocks } = await supabase
@@ -303,9 +314,7 @@ export default function Products() {
                   <td className="px-4 py-2.5"><TrackingBadge type={p.tracking_type} /></td>
                   <td className="px-4 py-2.5 text-[12px] font-mono text-neutral-700">
                     {p.tracking_type === 'serial_tracked'
-                      ? (p.inventory_counts
-                          ? Object.entries(p.inventory_counts).map(([s, c]) => `${c} ${s}`).join(', ')
-                          : '0')
+                      ? (p.inventory_counts ? summarizeCounts(p.inventory_counts) : '0')
                       : (p.total_qty ?? 0)
                     }
                   </td>
@@ -442,7 +451,7 @@ export default function Products() {
                         {detailMovements.map(m => (
                           <tr key={m.id} className="border-t border-neutral-200">
                             <td className="px-3 py-2 text-[12px] font-mono text-neutral-600 whitespace-nowrap">
-                              {new Date(m.movement_time).toLocaleString()}
+                              {formatDateTime(m.movement_time)}
                             </td>
                             <td className="px-3 py-2"><MovementBadge type={m.movement_type} /></td>
                             <td className="px-3 py-2 text-[12px] font-mono text-neutral-700 text-right">{m.quantity}</td>

@@ -71,10 +71,12 @@ export default function StockIn() {
   }
 
   async function handleSerialSubmit() {
-    const lines = serials
+    const rawLines = serials
       .split('\n')
-      .map(s => s.trim())
+      .map(s => s.trim().toUpperCase())
       .filter(Boolean)
+    const lines = [...new Set(rawLines)]
+    const duplicatesInBatch = rawLines.length - lines.length
 
     if (!productId || !warehouseId || lines.length === 0 || !movementDate) {
       toast('warning', 'Please fill in all fields and enter at least one serial number.')
@@ -88,6 +90,17 @@ export default function StockIn() {
 
     setSubmitting(true)
     try {
+      const { data: existing, error: existErr } = await supabase
+        .from('inv_inventory_item')
+        .select('serial_number')
+        .in('serial_number', lines)
+      if (existErr) throw existErr
+      if (existing && existing.length > 0) {
+        const list = existing.map(e => e.serial_number).join(', ')
+        toast('error', `Already in inventory: ${list}. Remove ${existing.length === 1 ? 'it' : 'them'} and try again.`)
+        return
+      }
+
       const items = lines.map(sn => ({
         product_id: productId,
         location_id: warehouseId,
@@ -123,7 +136,8 @@ export default function StockIn() {
 
       if (mvErr) throw mvErr
 
-      toast('success', `Stocked in ${lines.length} serial-tracked item${lines.length > 1 ? 's' : ''}.`)
+      const dupNote = duplicatesInBatch > 0 ? ` (${duplicatesInBatch} duplicate line${duplicatesInBatch > 1 ? 's' : ''} skipped)` : ''
+      toast('success', `Stocked in ${lines.length} serial-tracked item${lines.length > 1 ? 's' : ''}.${dupNote}`)
       resetForm()
     } catch (err: any) {
       toast('error', err.message ?? 'Failed to stock in items.')
@@ -318,10 +332,10 @@ export default function StockIn() {
               <div>
                 <label className="block text-sm font-medium text-neutral-700 mb-1">Quantity</label>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
                   value={quantity}
-                  onChange={e => setQuantity(e.target.value)}
+                  onChange={e => setQuantity(e.target.value.replace(/\D/g, ''))}
                   placeholder="Enter quantity"
                   className={inputClass}
                 />
@@ -335,7 +349,10 @@ export default function StockIn() {
         <div className="mt-6 flex gap-3">
           <button
             onClick={mode === 'serial_tracked' ? handleSerialSubmit : handleQuantitySubmit}
-            disabled={submitting || !movementDate}
+            disabled={
+              submitting || !movementDate || !productId || !warehouseId ||
+              (mode === 'serial_tracked' ? !serials.trim() : !(parseInt(quantity, 10) > 0))
+            }
             className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50 transition-colors duration-120"
           >
             {submitting ? 'Processing…' : 'Receive Stock'}

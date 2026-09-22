@@ -36,14 +36,19 @@ function movementTypeFor(item: InventoryItem, destType: Location['type'] | undef
 
 function newStatusFor(item: InventoryItem, destType: Location['type'] | undefined, reason: string): ItemStatus {
   const src = sourceType(item)
-  if (src === 'client_site' && destType === 'client_site') return 'installed'
-  if (src === 'client_site') {
-    return reason === 'defect' ? 'defect' : 'available'
-  }
-  if (destType === 'client_site') return 'installed'
   if (destType === 'repair_center') return 'in_repair'
+  if (destType === 'client_site') return 'installed'
+  if (src === 'client_site') return reason === 'defect' ? 'defect' : 'available'
   if (src === 'repair_center' && destType === 'warehouse') return 'available'
   return item.status
+}
+
+// A unit that is defective or mid-repair cannot be installed; it has to be cleared first.
+function installBlocker(item: InventoryItem, destType: Location['type'] | undefined): string | null {
+  if (destType !== 'client_site') return null
+  if (item.status === 'defect') return `${item.serial_number} is marked Defect — it cannot be installed`
+  if (item.status === 'in_repair') return `${item.serial_number} is In Repair — it cannot be installed`
+  return null
 }
 
 export default function Transfer() {
@@ -146,6 +151,11 @@ export default function Transfer() {
       if (selectedItems.length === 0) return 'Select at least one item'
       if (!destinationId) return 'Select a destination'
       if (sameLocationError) return 'Cannot transfer to the same location'
+      const destType = destinations.find(d => d.id === destinationId)?.type
+      for (const item of selectedItems) {
+        const blocker = installBlocker(item, destType)
+        if (blocker) return blocker
+      }
       if (hasClientSiteSource && !reason) return 'Select a reason'
       if (!movementDate) return 'Enter a movement date'
       if (new Date(movementDate) > new Date()) return 'Movement date cannot be in the future'
@@ -200,7 +210,7 @@ export default function Transfer() {
           if (updateErr) throw updateErr
 
           if (newStatus === 'installed') {
-            await activateWarrantyIfNeeded(item.id)
+            await activateWarrantyIfNeeded(item.id, new Date(movementTime))
           }
         }
 

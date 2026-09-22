@@ -175,11 +175,19 @@ export default function JobDetail() {
     setStatusUpdating(true)
     try {
       const now = new Date().toISOString()
-      const { error } = await supabase
+      // Only transition from the status this tab last saw, so a stale tab can't overwrite a newer one
+      const { data: updated, error } = await supabase
         .from('job_jobs')
         .update({ status: newStatus, updated_at: now, ...extra })
         .eq('id', job.id)
+        .eq('status', job.status)
+        .select('id')
       if (error) throw error
+      if (!updated || updated.length === 0) {
+        toast('error', 'This job was changed elsewhere — reloaded with the latest status')
+        fetchJob()
+        return
+      }
       toast('success', `Job ${formatLabel(newStatus)}`)
       fetchJob()
     } catch (err: any) {
@@ -199,7 +207,11 @@ export default function JobDetail() {
     setScheduleDate('')
   }
 
+  const itemsLocked = !!job && ['closed', 'cancelled'].includes(job.status)
+  const itemsLockedReason = itemsLocked ? `Items can't be changed on a ${formatLabel(job!.status).toLowerCase()} job` : null
+
   async function handleAddItem() {
+    if (itemsLocked) return
     if (!newItemProductId || !newItemQty || Number(newItemQty) <= 0) {
       toast('error', 'Please fill in all fields')
       return
@@ -238,6 +250,7 @@ export default function JobDetail() {
   }
 
   async function handleSaveItem(item: JobItem) {
+    if (itemsLocked) return
     const qty = Number(editQty)
     if (!qty || qty <= 0) {
       toast('error', 'Enter a valid quantity')
@@ -268,7 +281,7 @@ export default function JobDetail() {
   }
 
   async function handleDeleteItem(item: JobItem) {
-    if (item.fulfilled_quantity > 0) return
+    if (itemsLocked || item.fulfilled_quantity > 0) return
     setDeletingItemId(item.id)
     try {
       const { error } = await supabase.from('job_items').delete().eq('id', item.id)
@@ -431,6 +444,18 @@ export default function JobDetail() {
   const fulfillableItems = jobItems.filter(i => i.status !== 'fulfilled')
   const canEnter = job.status === 'in_progress' || job.status === 'incomplete'
 
+  const unfulfilledCount = jobItems.filter(i => i.status !== 'fulfilled').length
+  const completeBlocker = unfulfilledCount > 0
+    ? `${unfulfilledCount} item${unfulfilledCount === 1 ? '' : 's'} not yet fulfilled — use Mark Incomplete instead`
+    : null
+  const fulfilledAnything = jobItems.some(i => i.fulfilled_quantity > 0)
+  const cancelBlocker = fulfilledAnything
+    ? 'Inventory has already moved on this job — complete or mark it incomplete, then close'
+    : null
+
+  const tooltipClass = 'absolute bottom-full left-0 mb-2 px-3 py-1.5 rounded-lg bg-[#2b2b2e] text-neutral-0 text-[12px] font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg'
+  const tooltipArrowClass = 'absolute top-full left-6 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] border-t-[#2b2b2e]'
+
   return (
     <div className="p-6 max-w-4xl">
       <Link to="/jobs" className="inline-flex items-center gap-1.5 text-[13px] text-neutral-500 hover:text-neutral-800 mb-3 transition-colors">
@@ -490,9 +515,14 @@ export default function JobDetail() {
           )}
           {job.status === 'in_progress' && (
             <>
-              <button onClick={() => updateJobStatus('completed', { completed_date: new Date().toISOString() })} disabled={statusUpdating} className="h-9 px-3 rounded-lg bg-neutral-900 text-neutral-0 text-[13px] font-medium hover:bg-neutral-800 disabled:opacity-40">
-                Complete
-              </button>
+              <div className="relative group">
+                <button onClick={() => updateJobStatus('completed', { completed_date: new Date().toISOString() })} disabled={statusUpdating || completeBlocker !== null} className="h-9 px-3 rounded-lg bg-neutral-900 text-neutral-0 text-[13px] font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed">
+                  Complete
+                </button>
+                {completeBlocker && (
+                  <div className={tooltipClass}>{completeBlocker}<div className={tooltipArrowClass} /></div>
+                )}
+              </div>
               <button onClick={() => updateJobStatus('incomplete')} disabled={statusUpdating} className="h-9 px-3 rounded-lg border border-neutral-200 text-[13px] font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40">
                 Mark Incomplete
               </button>
@@ -513,10 +543,15 @@ export default function JobDetail() {
               </button>
             </>
           )}
-          {!['closed', 'cancelled'].includes(job.status) && (
-            <button onClick={() => updateJobStatus('cancelled')} disabled={statusUpdating} className="h-9 px-3 rounded-lg border border-danger-200 text-[13px] font-medium text-danger-600 hover:bg-danger-50 disabled:opacity-40 ml-auto">
-              Cancel Job
-            </button>
+          {!['completed', 'closed', 'cancelled'].includes(job.status) && (
+            <div className="relative group ml-auto">
+              <button onClick={() => updateJobStatus('cancelled')} disabled={statusUpdating || cancelBlocker !== null} className="h-9 px-3 rounded-lg border border-danger-200 text-[13px] font-medium text-danger-600 hover:bg-danger-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                Cancel Job
+              </button>
+              {cancelBlocker && (
+                <div className={`${tooltipClass} left-auto right-0`}>{cancelBlocker}<div className={`${tooltipArrowClass} left-auto right-6`} /></div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -525,12 +560,18 @@ export default function JobDetail() {
       <div className="bg-neutral-0 border border-neutral-200 rounded-xl p-5 mb-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-[14px] font-semibold text-neutral-800">Job Items</h2>
-          <button
-            onClick={() => setShowAddItem(v => !v)}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-neutral-200 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50 transition-colors"
-          >
-            <Plus size={13} /> Add Item
-          </button>
+          <div className="relative group">
+            <button
+              onClick={() => setShowAddItem(v => !v)}
+              disabled={itemsLocked}
+              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-neutral-200 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            >
+              <Plus size={13} /> Add Item
+            </button>
+            {itemsLockedReason && (
+              <div className={`${tooltipClass} left-auto right-0`}>{itemsLockedReason}<div className={`${tooltipArrowClass} left-auto right-6`} /></div>
+            )}
+          </div>
         </div>
 
         {showAddItem && (
@@ -673,21 +714,22 @@ export default function JobDetail() {
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => startEditItem(item)}
-                            className="p-1.5 rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600"
+                            disabled={itemsLocked}
+                            className="p-1.5 rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-neutral-400"
                           >
                             <Pencil size={13} />
                           </button>
                           <div className="relative group">
                             <button
                               onClick={() => handleDeleteItem(item)}
-                              disabled={locked || deletingItemId === item.id}
+                              disabled={itemsLocked || locked || deletingItemId === item.id}
                               className="p-1.5 rounded-md text-neutral-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-neutral-400"
                             >
                               <Trash2 size={13} />
                             </button>
-                            {locked && (
+                            {(itemsLockedReason || locked) && (
                               <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 rounded-lg bg-[#2b2b2e] text-neutral-0 text-[12px] font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
-                                Can't remove — {item.fulfilled_quantity} already fulfilled
+                                {itemsLockedReason ?? `Can't remove — ${item.fulfilled_quantity} already fulfilled`}
                                 <div className="absolute top-full right-4 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] border-t-[#2b2b2e]" />
                               </div>
                             )}

@@ -21,7 +21,8 @@ function warrantyLabel(item: InventoryItem): { text: string; style: string } {
   if (item.warranty_duration_years == null) return { text: 'No warranty', style: 'text-neutral-400' }
   if (!item.warranty_start_date) return { text: 'Not activated', style: 'text-neutral-500' }
   const end = new Date(item.warranty_end_date!)
-  if (end > new Date()) return { text: `Active (expires ${end.toLocaleDateString()})`, style: 'text-success-700' }
+  if (isNaN(end.getTime())) return { text: 'Active (end date missing)', style: 'text-warning-700' }
+  if (end > new Date()) return { text: `Active (expires ${formatDate(end)})`, style: 'text-success-700' }
   return { text: 'Expired', style: 'text-danger-700' }
 }
 
@@ -287,9 +288,22 @@ export default function Inventory() {
       const now = new Date().toISOString()
       const newDuration = editWarrantyValue ? Number(editWarrantyValue) : null
 
+      // Keep the end date consistent with the new duration if the warranty has already started
+      const updates: Record<string, unknown> = { warranty_duration_years: newDuration, updated_at: now }
+      if (selectedItem.warranty_start_date) {
+        if (newDuration) {
+          const end = new Date(selectedItem.warranty_start_date)
+          end.setFullYear(end.getFullYear() + newDuration)
+          updates.warranty_end_date = end.toISOString()
+        } else {
+          updates.warranty_start_date = null
+          updates.warranty_end_date = null
+        }
+      }
+
       const { error } = await supabase
         .from('inv_inventory_item')
-        .update({ warranty_duration_years: newDuration, updated_at: now })
+        .update(updates)
         .eq('id', selectedItem.id)
       if (error) throw error
 
@@ -607,7 +621,7 @@ export default function Inventory() {
                     <div className="flex items-center gap-1.5">
                       <span className="text-[11px] uppercase tracking-[0.06em] text-neutral-500">Allocated Client</span>
                       {!editingClient && (
-                        <button onClick={startEditClient} className="text-neutral-400 hover:text-neutral-600">
+                        <button onClick={startEditClient} disabled={selectedItem.status === 'written_off'} className="text-neutral-400 hover:text-neutral-600 disabled:opacity-30 disabled:cursor-not-allowed">
                           <Pencil size={11} />
                         </button>
                       )}
@@ -660,7 +674,7 @@ export default function Inventory() {
                     <div className="flex items-center gap-1.5">
                       <span className="text-[11px] uppercase tracking-[0.06em] text-neutral-500">Designation</span>
                       {!editingDesignation && (
-                        <button onClick={startEditDesignation} className="text-neutral-400 hover:text-neutral-600">
+                        <button onClick={startEditDesignation} disabled={selectedItem.status === 'written_off'} className="text-neutral-400 hover:text-neutral-600 disabled:opacity-30 disabled:cursor-not-allowed">
                           <Pencil size={11} />
                         </button>
                       )}
@@ -705,7 +719,7 @@ export default function Inventory() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-[11px] text-neutral-400">Duration</span>
                         {!editingWarranty && (
-                          <button onClick={startEditWarranty} className="text-neutral-400 hover:text-neutral-600">
+                          <button onClick={startEditWarranty} disabled={selectedItem.status === 'written_off'} className="text-neutral-400 hover:text-neutral-600 disabled:opacity-30 disabled:cursor-not-allowed">
                             <Pencil size={10} />
                           </button>
                         )}

@@ -28,15 +28,49 @@ const DESIGNATION_OPTIONS = [
   { value: 'maintenance', label: 'Maintenance' },
 ]
 
-const ALL_STATUSES: { value: ItemStatus; label: string }[] = [
+// Manual status changes are corrections. Installing, writing off and moving between
+// locations all have their own flows, so they are not offered here.
+const STATUS_OPTIONS: { value: ItemStatus; label: string }[] = [
   { value: 'available', label: 'Available' },
-  { value: 'scheduled', label: 'Scheduled' },
   { value: 'in_transit', label: 'In Transit' },
-  { value: 'installed', label: 'Installed' },
   { value: 'defect', label: 'Defect' },
   { value: 'in_repair', label: 'In Repair' },
-  { value: 'written_off', label: 'Written Off' },
 ]
+
+const STATUS_TRANSITIONS: Record<ItemStatus, ItemStatus[]> = {
+  available: ['in_transit', 'defect'],
+  scheduled: ['available', 'in_transit', 'defect'],
+  in_transit: ['available', 'defect'],
+  installed: ['defect'],
+  defect: ['in_repair', 'available'],
+  in_repair: ['available', 'defect'],
+  written_off: [],
+}
+
+const STATUS_REQUIRES_LOCATION: Partial<Record<ItemStatus, Location['type'][]>> = {
+  available: ['warehouse'],
+  in_repair: ['repair_center'],
+  installed: ['client_site'],
+}
+
+const STATUS_LABEL: Record<ItemStatus, string> = {
+  available: 'Available', scheduled: 'Scheduled', in_transit: 'In Transit', installed: 'Installed',
+  defect: 'Defect', in_repair: 'In Repair', written_off: 'Written Off',
+}
+
+function statusChangeBlocker(item: InventoryItem, target: ItemStatus): string | null {
+  if (item.status === target) return `${item.serial_number} is already ${STATUS_LABEL[target]}`
+  if (!STATUS_TRANSITIONS[item.status].includes(target)) {
+    return `${item.serial_number}: ${STATUS_LABEL[item.status]} → ${STATUS_LABEL[target]} is not a valid transition`
+  }
+  const needed = STATUS_REQUIRES_LOCATION[target]
+  const locType = (item.location as any)?.type as Location['type'] | undefined
+  if (needed && (!locType || !needed.includes(locType))) {
+    const where = needed.map(t => t.replace('_', ' ')).join(' or ')
+    return `${item.serial_number} must be at a ${where} to be ${STATUS_LABEL[target]} (currently at ${(item.location as any)?.name ?? 'no location'})`
+  }
+  return null
+}
 
 export default function Adjustment() {
   const { toast } = useToast()
@@ -129,7 +163,7 @@ export default function Adjustment() {
     const [itemsRes, prodsRes, locsRes, companiesRes] = await Promise.all([
       supabase
         .from('inv_inventory_item')
-        .select('*, product:inv_product_registry(id,name,sku), location:mock_cl_locations(id,name), allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id,name)')
+        .select('*, product:inv_product_registry(id,name,sku), location:mock_cl_locations(id,name,type), allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id,name)')
         .neq('status', 'written_off')
         .order('serial_number'),
       supabase.from('inv_product_registry').select('*').eq('tracking_type', 'quantity_only').eq('active', true).order('name'),
@@ -144,23 +178,39 @@ export default function Adjustment() {
 
   const selectedItems = allItems.filter(i => selectedItemIds.includes(i.id))
 
-  async function handleTrackedSubmit() {
-    if (selectedItems.length === 0 || !action || !reason.trim() || !movementDateTracked) {
-      toast('error', 'Please fill in all fields')
-      return
+  const trackedDisabledReason = (() => {
+    if (selectedItems.length === 0) return 'Select at least one item'
+    if (!action) return 'Select an action'
+    if (action === 'status_change') {
+      if (!newStatus) return 'Select a new status'
+      for (const item of selectedItems) {
+        const blocker = statusChangeBlocker(item, newStatus as ItemStatus)
+        if (blocker) return blocker
+      }
     }
-    if (action === 'status_change' && !newStatus) {
-      toast('error', 'Please select a new status')
+    if (action === 'reallocate') {
+      const destClientId = trackedTargetClientId || null
+      const allSame = selectedItems.every(item =>
+        ((item as any).allocated_client_id ?? null) === destClientId &&
+        ((item as any).designation ?? 'deployment') === trackedTargetDesignation
+      )
+      if (allSame) return 'All selected items already belong to the target pool'
+    }
+    if (!reason.trim()) return 'Enter a reason'
+    if (!movementDateTracked) return 'Enter a movement date'
+    if (new Date(movementDateTracked) > new Date()) return 'Movement date cannot be in the future'
+    return null
+  })()
+
+  async function handleTrackedSubmit() {
+    if (trackedDisabledReason) {
+      toast('error', trackedDisabledReason)
       return
     }
     if (action === 'reallocate') {
       return handleTrackedReallocate()
     }
     const movementTime = new Date(movementDateTracked)
-    if (movementTime > new Date()) {
-      toast('error', 'Movement date cannot be in the future.')
-      return
-    }
 
     setSubmittingTracked(true)
     try {
@@ -485,7 +535,7 @@ export default function Adjustment() {
               <div>
                 <label className="block text-sm font-medium text-neutral-700 mb-1">New Status</label>
                 <SearchableSelect
-                  options={ALL_STATUSES}
+                  options={STATUS_OPTIONS}
                   value={newStatus}
                   onChange={setNewStatus}
                   placeholder="Select new status…"
@@ -534,16 +584,24 @@ export default function Adjustment() {
             <MovementDateInput value={movementDateTracked} onChange={setMovementDateTracked} />
 
             {/* Submit */}
-            <button
-              onClick={handleTrackedSubmit}
-              disabled={submittingTracked || selectedItems.length === 0 || !action || !reason.trim() || !movementDateTracked || (action === 'status_change' && !newStatus)}
-              className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
-            >
-              {submittingTracked ? 'Processing…'
-                : action === 'write_off' ? `Write Off ${selectedItems.length} Item${selectedItems.length !== 1 ? 's' : ''}`
-                : action === 'reallocate' ? `Reallocate ${selectedItems.length} Item${selectedItems.length !== 1 ? 's' : ''}`
-                : `Apply Status Change (${selectedItems.length})`}
-            </button>
+            <div className="relative w-fit group">
+              <button
+                onClick={handleTrackedSubmit}
+                disabled={submittingTracked || trackedDisabledReason !== null}
+                className="h-10 px-5 rounded-lg bg-neutral-900 text-neutral-0 text-sm font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-120"
+              >
+                {submittingTracked ? 'Processing…'
+                  : action === 'write_off' ? `Write Off ${selectedItems.length} Item${selectedItems.length !== 1 ? 's' : ''}`
+                  : action === 'reallocate' ? `Reallocate ${selectedItems.length} Item${selectedItems.length !== 1 ? 's' : ''}`
+                  : `Apply Status Change (${selectedItems.length})`}
+              </button>
+              {trackedDisabledReason && !submittingTracked && (
+                <div className="absolute bottom-full left-0 mb-2 px-3 py-1.5 rounded-lg bg-[#2b2b2e] text-neutral-0 text-[12px] font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
+                  {trackedDisabledReason}
+                  <div className="absolute top-full left-6 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] border-t-[#2b2b2e]" />
+                </div>
+              )}
+            </div>
           </>
         ) : (
           <>

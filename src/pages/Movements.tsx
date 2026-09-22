@@ -4,6 +4,7 @@ import type { Product, Location, MovementType, InventoryItem } from '../lib/type
 import { MovementBadge } from '../components/StatusBadge'
 import PageHeader from '../components/PageHeader'
 import SearchableSelect from '../components/SearchableSelect'
+import { formatDateTime } from '../lib/format'
 
 interface MovementRow {
   id: string
@@ -26,11 +27,6 @@ interface MovementRow {
 
 const MOVEMENT_TYPES: MovementType[] = ['stock_in', 'stock_out', 'transfer', 'return', 'adjustment']
 
-function formatDateTime(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) +
-    ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-}
 
 export default function Movements() {
   const [movements, setMovements] = useState<MovementRow[]>([])
@@ -70,6 +66,7 @@ export default function Movements() {
         '*, product:inv_product_registry(name,sku), inventory_item:inv_inventory_item(serial_number), from_loc:mock_cl_locations!inv_stock_movement_from_location_fkey(name), to_loc:mock_cl_locations!inv_stock_movement_to_location_fkey(name), performer:mock_plat_profiles(full_name)'
       )
       .order('movement_time', { ascending: false })
+      .order('created_at', { ascending: false })
 
     if (filterType) query = query.eq('movement_type', filterType)
     if (filterProduct) query = query.eq('product_id', filterProduct)
@@ -79,8 +76,9 @@ export default function Movements() {
     if (filterItems.length > 0) {
       query = query.in('inventory_item_id', filterItems)
     }
-    if (filterDateFrom) query = query.gte('movement_time', filterDateFrom + 'T00:00:00')
-    if (filterDateTo) query = query.lte('movement_time', filterDateTo + 'T23:59:59')
+    // Day boundaries in the user's local zone, sent as UTC instants
+    if (filterDateFrom) query = query.gte('movement_time', new Date(filterDateFrom + 'T00:00:00').toISOString())
+    if (filterDateTo) query = query.lte('movement_time', new Date(filterDateTo + 'T23:59:59.999').toISOString())
 
     const { data } = await query
     setMovements((data as MovementRow[] | null) ?? [])
