@@ -148,6 +148,7 @@ export default function Transfer() {
       if (sameLocationError) return 'Cannot transfer to the same location'
       if (hasClientSiteSource && !reason) return 'Select a reason'
       if (!movementDate) return 'Enter a movement date'
+      if (new Date(movementDate) > new Date()) return 'Movement date cannot be in the future'
       return null
     }
     if (!selectedProductId) return 'Select a product'
@@ -157,10 +158,15 @@ export default function Transfer() {
     if (!(Number(transferQty) > 0)) return 'Enter a quantity'
     if (Number(transferQty) > maxQty) return 'Quantity exceeds maximum'
     if (!movementDate) return 'Enter a movement date'
+    if (new Date(movementDate) > new Date()) return 'Movement date cannot be in the future'
     return null
   })()
 
   async function handleSubmit() {
+    if (disabledReason) {
+      toast('error', disabledReason)
+      return
+    }
     const movementTime = new Date(movementDate).toISOString()
     setSubmitting(true)
     try {
@@ -171,7 +177,8 @@ export default function Transfer() {
         for (const item of selectedItems) {
           const movementType = movementTypeFor(item, dest.type)
           const newStatus = newStatusFor(item, dest.type, reason)
-          const defaultNote = movementType === 'return' ? `Return reason: ${reason.replace(/_/g, ' ')}` : null
+          const reasonNote = movementType === 'return' ? `Return reason: ${reason.replace(/_/g, ' ')}` : null
+          const combinedNotes = [reasonNote, notes.trim()].filter(Boolean).join(' — ') || null
 
           const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
             product_id: item.product_id,
@@ -182,7 +189,7 @@ export default function Transfer() {
             movement_type: movementType,
             quantity: 1,
             movement_time: movementTime,
-            notes: notes.trim() || defaultNote,
+            notes: combinedNotes,
           })
           if (moveErr) throw moveErr
 
@@ -202,9 +209,13 @@ export default function Transfer() {
         const qty = Number(transferQty)
         const now = new Date().toISOString()
 
-        // Re-fetch to guard against stale quantity
-        const { data: freshStock } = await supabase.from('inv_warehouse_stock').select('quantity').eq('id', sourceStock!.id).single()
-        if (freshStock && qty > freshStock.quantity) {
+        const { data: freshStock, error: freshErr } = await supabase
+          .from('inv_warehouse_stock')
+          .select('quantity')
+          .eq('id', sourceStock!.id)
+          .single()
+        if (freshErr || !freshStock) throw new Error('Source pool no longer exists')
+        if (qty > freshStock.quantity) {
           toast('error', `Only ${freshStock.quantity} units available (was ${sourceStock!.quantity}). Please review and try again.`)
           setSubmitting(false)
           return
@@ -228,7 +239,7 @@ export default function Transfer() {
 
         const { error: decErr } = await supabase
           .from('inv_warehouse_stock')
-          .update({ quantity: sourceStock!.quantity - qty, updated_at: now })
+          .update({ quantity: freshStock.quantity - qty, updated_at: now })
           .eq('id', sourceStock!.id)
         if (decErr) throw decErr
 

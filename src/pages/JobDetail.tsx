@@ -310,8 +310,40 @@ export default function JobDetail() {
     setEntrySubmitting(true)
     try {
       const now = new Date().toISOString()
-      const item = eligibleItems.find(i => i.id === entrySerialItemId)!
       const direction = entryJobItem.direction
+
+      // Re-validate the item against the DB — the dropdown may be stale
+      const { data: item, error: itemFetchErr } = await supabase
+        .from('inv_inventory_item')
+        .select('*, product:inv_product_registry(id,name,sku), location:mock_cl_locations(id,name,type)')
+        .eq('id', entrySerialItemId)
+        .single()
+      if (itemFetchErr || !item) throw new Error('Item no longer exists')
+      const itemLocType = (item.location as any)?.type
+      if (direction === 'outbound') {
+        if (!['available', 'scheduled'].includes(item.status) || itemLocType !== 'warehouse') {
+          throw new Error(`${item.serial_number} is no longer available at a warehouse (now ${formatLabel(item.status)})`)
+        }
+      } else if (item.status !== 'installed' || item.location_id !== job.location_id) {
+        throw new Error(`${item.serial_number} is no longer installed at this site`)
+      }
+
+      const { count: existingLinks } = await supabase
+        .from('job_item_serials')
+        .select('id', { count: 'exact', head: true })
+        .eq('job_item_id', entryJobItem.id)
+        .eq('inventory_item_id', item.id)
+      if (existingLinks && existingLinks > 0) throw new Error(`${item.serial_number} is already linked to this job item`)
+
+      const { data: freshJobItem, error: jiErr } = await supabase
+        .from('job_items')
+        .select('planned_quantity, fulfilled_quantity')
+        .eq('id', entryJobItem.id)
+        .single()
+      if (jiErr || !freshJobItem) throw new Error('Job item no longer exists')
+      if (freshJobItem.fulfilled_quantity >= freshJobItem.planned_quantity) {
+        throw new Error('This job item is already fully fulfilled')
+      }
 
       const movementType: MovementType = direction === 'outbound' ? 'transfer' : 'return'
       const fromLocation = direction === 'outbound' ? item.location_id : job.location_id
@@ -350,8 +382,8 @@ export default function JobDetail() {
         await activateWarrantyIfNeeded(item.id)
       }
 
-      const newFulfilled = entryJobItem.fulfilled_quantity + 1
-      const newItemStatus = newFulfilled >= entryJobItem.planned_quantity ? 'fulfilled' : 'partial'
+      const newFulfilled = freshJobItem.fulfilled_quantity + 1
+      const newItemStatus = newFulfilled >= freshJobItem.planned_quantity ? 'fulfilled' : 'partial'
       const { error: itemErr } = await supabase
         .from('job_items')
         .update({ fulfilled_quantity: newFulfilled, status: newItemStatus })
@@ -386,21 +418,18 @@ export default function JobDetail() {
       const direction = entryJobItem.direction
       const fromLocation = direction === 'outbound' ? entryWarehouseId : job.location_id
       const toLocation = direction === 'outbound' ? job.location_id : entryWarehouseId
-
-      const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
-        product_id: entryJobItem.product_id,
-        inventory_item_id: null,
-        from_location: fromLocation,
-        to_location: toLocation,
-        performed_by: BOSS_PROFILE_ID,
-        movement_type: 'transfer',
-        quantity: qty,
-        movement_time: movementTime.toISOString(),
-        notes: `Job ${job.job_number}`,
-      })
-      if (moveErr) throw moveErr
-
       const clientId = job.client_id
+
+      const { data: freshJobItem, error: jiErr } = await supabase
+        .from('job_items')
+        .select('planned_quantity, fulfilled_quantity')
+        .eq('id', entryJobItem.id)
+        .single()
+      if (jiErr || !freshJobItem) throw new Error('Job item no longer exists')
+      const remaining = freshJobItem.planned_quantity - freshJobItem.fulfilled_quantity
+      if (qty > remaining) throw new Error(`Only ${remaining} remaining on this job item`)
+
+      // Resolve the pool: client-allocated first, then unallocated (outbound only)
       let stockQuery = supabase
         .from('inv_warehouse_stock')
         .select('id, quantity')
@@ -409,10 +438,12 @@ export default function JobDetail() {
         .eq('designation', 'deployment')
       if (clientId) stockQuery = stockQuery.eq('allocated_client_id', clientId)
       else stockQuery = stockQuery.is('allocated_client_id', null)
-      let { data: stock } = await stockQuery.maybeSingle()
+      const { data: clientStock, error: stockErr } = await stockQuery.maybeSingle()
+      if (stockErr) throw stockErr
+      let stock = clientStock
 
-      if (!stock && clientId) {
-        const { data: unalloc } = await supabase
+      if (!stock && clientId && direction === 'outbound') {
+        const { data: unalloc, error: unallocErr } = await supabase
           .from('inv_warehouse_stock')
           .select('id, quantity')
           .eq('product_id', entryJobItem.product_id)
@@ -420,40 +451,58 @@ export default function JobDetail() {
           .eq('designation', 'deployment')
           .is('allocated_client_id', null)
           .maybeSingle()
+        if (unallocErr) throw unallocErr
         stock = unalloc
       }
 
       if (direction === 'outbound') {
-        if (!stock) {
-          toast('error', 'No stock pool found for this product')
-          setEntrySubmitting(false)
-          return
-        }
-        // Re-fetch to guard against stale quantity
-        const { data: freshStock } = await supabase.from('inv_warehouse_stock').select('quantity').eq('id', stock.id).single()
-        if (!freshStock || qty > freshStock.quantity) {
-          toast('error', `Insufficient stock: only ${freshStock?.quantity ?? 0} available`)
-          setEntrySubmitting(false)
-          return
-        }
-        await supabase.from('inv_warehouse_stock').update({ quantity: freshStock.quantity - qty, updated_at: now }).eq('id', stock.id)
-      } else {
-        if (stock) {
-          await supabase.from('inv_warehouse_stock').update({ quantity: stock.quantity + qty, updated_at: now }).eq('id', stock.id)
-        } else {
-          await supabase.from('inv_warehouse_stock').insert({
-            product_id: entryJobItem.product_id,
-            location_id: entryWarehouseId,
-            allocated_client_id: clientId || null,
-            designation: 'deployment',
-            quantity: qty,
-          })
-        }
+        if (!stock) throw new Error('No stock pool found for this product at the selected warehouse')
+        if (qty > stock.quantity) throw new Error(`Insufficient stock: only ${stock.quantity} available`)
       }
 
-      const newFulfilled = entryJobItem.fulfilled_quantity + qty
-      const newItemStatus = newFulfilled >= entryJobItem.planned_quantity ? 'fulfilled' : 'partial'
-      await supabase.from('job_items').update({ fulfilled_quantity: newFulfilled, status: newItemStatus }).eq('id', entryJobItem.id)
+      const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
+        product_id: entryJobItem.product_id,
+        inventory_item_id: null,
+        from_location: fromLocation,
+        to_location: toLocation,
+        performed_by: BOSS_PROFILE_ID,
+        movement_type: direction === 'outbound' ? 'transfer' : 'return',
+        quantity: qty,
+        movement_time: movementTime.toISOString(),
+        notes: `Job ${job.job_number}`,
+      })
+      if (moveErr) throw moveErr
+
+      if (direction === 'outbound') {
+        const { error: decErr } = await supabase
+          .from('inv_warehouse_stock')
+          .update({ quantity: stock!.quantity - qty, updated_at: now })
+          .eq('id', stock!.id)
+        if (decErr) throw decErr
+      } else if (stock) {
+        const { error: incErr } = await supabase
+          .from('inv_warehouse_stock')
+          .update({ quantity: stock.quantity + qty, updated_at: now })
+          .eq('id', stock.id)
+        if (incErr) throw incErr
+      } else {
+        const { error: insErr } = await supabase.from('inv_warehouse_stock').insert({
+          product_id: entryJobItem.product_id,
+          location_id: entryWarehouseId,
+          allocated_client_id: clientId || null,
+          designation: 'deployment',
+          quantity: qty,
+        })
+        if (insErr) throw insErr
+      }
+
+      const newFulfilled = freshJobItem.fulfilled_quantity + qty
+      const newItemStatus = newFulfilled >= freshJobItem.planned_quantity ? 'fulfilled' : 'partial'
+      const { error: fulfillErr } = await supabase
+        .from('job_items')
+        .update({ fulfilled_quantity: newFulfilled, status: newItemStatus })
+        .eq('id', entryJobItem.id)
+      if (fulfillErr) throw fulfillErr
 
       toast('success', `Recorded ${qty}× ${entryProduct?.name} for ${job.job_number}`)
       setEntryJobItemId('')

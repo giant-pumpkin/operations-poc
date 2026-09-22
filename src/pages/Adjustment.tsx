@@ -265,6 +265,8 @@ export default function Adjustment() {
         const curDesignation = (item as any).designation ?? 'deployment'
         if (curClient === destClientId && curDesignation === destDesignation) continue
 
+        const oldClientName = (item as any).allocated_client?.name ?? 'Unallocated'
+        const newClientName = destClientId ? (companies.find(c => c.id === destClientId)?.name ?? 'Unknown') : 'Unallocated'
         const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
           product_id: item.product_id,
           inventory_item_id: item.id,
@@ -274,7 +276,7 @@ export default function Adjustment() {
           movement_type: 'adjustment',
           quantity: 1,
           movement_time: moveTime,
-          notes: `Reallocation: ${reason.trim()}`,
+          notes: `Reallocated from ${oldClientName} · ${curDesignation} to ${newClientName} · ${destDesignation}: ${reason.trim()}`,
         })
         if (moveErr) throw moveErr
 
@@ -409,9 +411,13 @@ export default function Adjustment() {
 
     setSubmittingUntracked(true)
     try {
-      // Re-fetch to guard against stale quantity
-      const { data: fresh } = await supabase.from('inv_warehouse_stock').select('quantity').eq('id', stockRecord.id).single()
-      if (fresh && qty > fresh.quantity) {
+      const { data: fresh, error: freshErr } = await supabase
+        .from('inv_warehouse_stock')
+        .select('quantity')
+        .eq('id', stockRecord.id)
+        .single()
+      if (freshErr || !fresh) throw new Error('Source pool no longer exists')
+      if (qty > fresh.quantity) {
         toast('error', `Only ${fresh.quantity} units available in source pool (was ${stockRecord.quantity})`)
         setStockRecord({ ...stockRecord, quantity: fresh.quantity })
         setSubmittingUntracked(false)
@@ -420,6 +426,8 @@ export default function Adjustment() {
 
       const now = new Date().toISOString()
       const locationId = stockRecord.location_id
+      const srcClientName = (stockRecord.allocated_client as any)?.name ?? 'Unallocated'
+      const destClientName = destClientId ? (companies.find(c => c.id === destClientId)?.name ?? 'Unknown') : 'Unallocated'
 
       const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
         product_id: selectedProductId,
@@ -430,14 +438,15 @@ export default function Adjustment() {
         movement_type: 'adjustment',
         quantity: qty,
         movement_time: movementTime.toISOString(),
-        notes: `Reallocation (${qty}×): ${qtyReason.trim()}`,
+        notes: `Reallocation (${qty}×) from ${srcClientName} · ${srcDesignation} to ${destClientName} · ${destDesignation}: ${qtyReason.trim()}`,
       })
       if (moveErr) throw moveErr
 
-      await supabase
+      const { error: decErr } = await supabase
         .from('inv_warehouse_stock')
-        .update({ quantity: stockRecord.quantity - qty, updated_at: now })
+        .update({ quantity: fresh.quantity - qty, updated_at: now })
         .eq('id', stockRecord.id)
+      if (decErr) throw decErr
 
       let destQuery = supabase
         .from('inv_warehouse_stock')
@@ -447,15 +456,17 @@ export default function Adjustment() {
         .eq('designation', destDesignation)
       if (destClientId) destQuery = destQuery.eq('allocated_client_id', destClientId)
       else destQuery = destQuery.is('allocated_client_id', null)
-      const { data: existing } = await destQuery.maybeSingle()
+      const { data: existing, error: destLookupErr } = await destQuery.maybeSingle()
+      if (destLookupErr) throw destLookupErr
 
       if (existing) {
-        await supabase
+        const { error: incErr } = await supabase
           .from('inv_warehouse_stock')
           .update({ quantity: existing.quantity + qty, updated_at: now })
           .eq('id', existing.id)
+        if (incErr) throw incErr
       } else {
-        await supabase
+        const { error: insErr } = await supabase
           .from('inv_warehouse_stock')
           .insert({
             product_id: selectedProductId,
@@ -464,6 +475,7 @@ export default function Adjustment() {
             designation: destDesignation,
             quantity: qty,
           })
+        if (insErr) throw insErr
       }
 
       const product = qtyProducts.find(p => p.id === selectedProductId)
