@@ -146,51 +146,17 @@ export default function StockIn() {
 
     setSubmitting(true)
     try {
-      const clientId = allocatedClientId || null
-      let query = supabase
-        .from('inv_warehouse_stock')
-        .select('id, quantity')
-        .eq('product_id', productId)
-        .eq('location_id', warehouseId)
-        .eq('designation', designation)
-      if (clientId) query = query.eq('allocated_client_id', clientId)
-      else query = query.is('allocated_client_id', null)
-      const { data: existing } = await query.maybeSingle()
-
-      if (existing) {
-        const { error } = await supabase
-          .from('inv_warehouse_stock')
-          .update({ quantity: existing.quantity + qty, updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
-        if (error) throw error
-      } else {
-        const { error } = await supabase
-          .from('inv_warehouse_stock')
-          .insert({
-            product_id: productId,
-            location_id: warehouseId,
-            allocated_client_id: clientId,
-            designation,
-            quantity: qty,
-          })
-        if (error) throw error
-      }
-
-      const { error: mvErr } = await supabase
-        .from('inv_stock_movement')
-        .insert({
-          product_id: productId,
-          inventory_item_id: null,
-          from_location: null,
-          to_location: warehouseId,
-          performed_by: BOSS_PROFILE_ID,
-          movement_type: 'stock_in' as const,
-          quantity: qty,
-          movement_time: movementTime.toISOString(),
-          notes: null,
-        })
-
-      if (mvErr) throw mvErr
+      const { error } = await supabase.rpc('stock_in_quantity', {
+        p_product_id: productId,
+        p_location_id: warehouseId,
+        p_client_id: allocatedClientId || null,
+        p_designation: designation,
+        p_qty: qty,
+        p_movement_time: movementTime.toISOString(),
+        p_performed_by: BOSS_PROFILE_ID,
+        p_notes: null,
+      })
+      if (error) throw error
 
       const product = products.find(p => p.id === productId)
       toast('success', `Stocked in ${qty}× ${product?.name ?? 'items'}.`)

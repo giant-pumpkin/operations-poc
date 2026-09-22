@@ -325,46 +325,27 @@ export default function Adjustment() {
 
     setSubmittingUntracked(true)
     try {
-      // Re-fetch current quantity to guard against stale state
-      if (stockRecord) {
-        const { data: fresh } = await supabase.from('inv_warehouse_stock').select('quantity').eq('id', stockRecord.id).single()
-        if (fresh && correctedQty < 0) {
-          toast('error', 'Quantity cannot be negative')
-          setSubmittingUntracked(false)
-          return
-        }
-        if (fresh && fresh.quantity !== currentQty) {
-          toast('error', `Stock has changed (now ${fresh.quantity}). Please review and try again.`)
-          setStockRecord({ ...stockRecord, quantity: fresh.quantity })
-          setNewQty(String(fresh.quantity))
-          setSubmittingUntracked(false)
-          return
-        }
+      if (!stockRecord) throw new Error('Select a stock pool')
+
+      // The user is correcting against the number they saw; if it moved underneath them, stop and re-show.
+      const { data: fresh, error: freshErr } = await supabase.from('inv_warehouse_stock').select('quantity').eq('id', stockRecord.id).single()
+      if (freshErr || !fresh) throw new Error('Stock pool no longer exists')
+      if (fresh.quantity !== currentQty) {
+        toast('error', `Stock has changed (now ${fresh.quantity}). Please review and try again.`)
+        setStockRecord({ ...stockRecord, quantity: fresh.quantity })
+        setNewQty(String(fresh.quantity))
+        setSubmittingUntracked(false)
+        return
       }
 
-      const now = new Date().toISOString()
-      const locationId = stockRecord?.location_id ?? selectedWarehouseId
-
-      const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
-        product_id: selectedProductId,
-        inventory_item_id: null,
-        from_location: diff < 0 ? locationId : null,
-        to_location: diff > 0 ? locationId : null,
-        performed_by: BOSS_PROFILE_ID,
-        movement_type: 'adjustment',
-        quantity: Math.abs(diff),
-        movement_time: movementTime.toISOString(),
-        notes: `Adjustment (${diff > 0 ? '+' : ''}${diff}): ${qtyReason.trim()}`,
+      const { error } = await supabase.rpc('adjust_quantity_stock', {
+        p_pool_id: stockRecord.id,
+        p_new_qty: correctedQty,
+        p_movement_time: movementTime.toISOString(),
+        p_performed_by: BOSS_PROFILE_ID,
+        p_notes: `Adjustment (${diff > 0 ? '+' : ''}${diff}): ${qtyReason.trim()}`,
       })
-      if (moveErr) throw moveErr
-
-      if (stockRecord) {
-        const { error } = await supabase
-          .from('inv_warehouse_stock')
-          .update({ quantity: correctedQty, updated_at: now })
-          .eq('id', stockRecord.id)
-        if (error) throw error
-      }
+      if (error) throw error
 
       const product = qtyProducts.find(p => p.id === selectedProductId)
       toast('success', `${product?.name}: adjusted by ${diff > 0 ? '+' : ''}${diff}`)
@@ -411,72 +392,19 @@ export default function Adjustment() {
 
     setSubmittingUntracked(true)
     try {
-      const { data: fresh, error: freshErr } = await supabase
-        .from('inv_warehouse_stock')
-        .select('quantity')
-        .eq('id', stockRecord.id)
-        .single()
-      if (freshErr || !fresh) throw new Error('Source pool no longer exists')
-      if (qty > fresh.quantity) {
-        toast('error', `Only ${fresh.quantity} units available in source pool (was ${stockRecord.quantity})`)
-        setStockRecord({ ...stockRecord, quantity: fresh.quantity })
-        setSubmittingUntracked(false)
-        return
-      }
-
-      const now = new Date().toISOString()
-      const locationId = stockRecord.location_id
       const srcClientName = (stockRecord.allocated_client as any)?.name ?? 'Unallocated'
       const destClientName = destClientId ? (companies.find(c => c.id === destClientId)?.name ?? 'Unknown') : 'Unallocated'
 
-      const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
-        product_id: selectedProductId,
-        inventory_item_id: null,
-        from_location: null,
-        to_location: null,
-        performed_by: BOSS_PROFILE_ID,
-        movement_type: 'adjustment',
-        quantity: qty,
-        movement_time: movementTime.toISOString(),
-        notes: `Reallocation (${qty}×) from ${srcClientName} · ${srcDesignation} to ${destClientName} · ${destDesignation}: ${qtyReason.trim()}`,
+      const { error } = await supabase.rpc('reallocate_quantity_stock', {
+        p_source_pool_id: stockRecord.id,
+        p_dest_client_id: destClientId,
+        p_dest_designation: destDesignation,
+        p_qty: qty,
+        p_movement_time: movementTime.toISOString(),
+        p_performed_by: BOSS_PROFILE_ID,
+        p_notes: `Reallocation (${qty}×) from ${srcClientName} · ${srcDesignation} to ${destClientName} · ${destDesignation}: ${qtyReason.trim()}`,
       })
-      if (moveErr) throw moveErr
-
-      const { error: decErr } = await supabase
-        .from('inv_warehouse_stock')
-        .update({ quantity: fresh.quantity - qty, updated_at: now })
-        .eq('id', stockRecord.id)
-      if (decErr) throw decErr
-
-      let destQuery = supabase
-        .from('inv_warehouse_stock')
-        .select('id, quantity')
-        .eq('product_id', selectedProductId)
-        .eq('location_id', locationId)
-        .eq('designation', destDesignation)
-      if (destClientId) destQuery = destQuery.eq('allocated_client_id', destClientId)
-      else destQuery = destQuery.is('allocated_client_id', null)
-      const { data: existing, error: destLookupErr } = await destQuery.maybeSingle()
-      if (destLookupErr) throw destLookupErr
-
-      if (existing) {
-        const { error: incErr } = await supabase
-          .from('inv_warehouse_stock')
-          .update({ quantity: existing.quantity + qty, updated_at: now })
-          .eq('id', existing.id)
-        if (incErr) throw incErr
-      } else {
-        const { error: insErr } = await supabase
-          .from('inv_warehouse_stock')
-          .insert({
-            product_id: selectedProductId,
-            location_id: locationId,
-            allocated_client_id: destClientId,
-            designation: destDesignation,
-            quantity: qty,
-          })
-        if (insErr) throw insErr
-      }
+      if (error) throw error
 
       const product = qtyProducts.find(p => p.id === selectedProductId)
       toast('success', `${product?.name}: reallocated ${qty} units`)

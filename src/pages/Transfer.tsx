@@ -207,64 +207,16 @@ export default function Transfer() {
         toast('success', `Moved ${selectedItems.length} item(s) to ${dest.name}`)
       } else {
         const qty = Number(transferQty)
-        const now = new Date().toISOString()
 
-        const { data: freshStock, error: freshErr } = await supabase
-          .from('inv_warehouse_stock')
-          .select('quantity')
-          .eq('id', sourceStock!.id)
-          .single()
-        if (freshErr || !freshStock) throw new Error('Source pool no longer exists')
-        if (qty > freshStock.quantity) {
-          toast('error', `Only ${freshStock.quantity} units available (was ${sourceStock!.quantity}). Please review and try again.`)
-          setSubmitting(false)
-          return
-        }
-
-        const srcClientId = sourceStock!.allocated_client_id ?? null
-        const srcDesignation = sourceStock!.designation ?? 'deployment'
-
-        const { error: moveErr } = await supabase.from('inv_stock_movement').insert({
-          product_id: selectedProductId,
-          inventory_item_id: null,
-          from_location: sourceStock!.location_id,
-          to_location: destinationId,
-          performed_by: BOSS_PROFILE_ID,
-          movement_type: 'transfer',
-          quantity: qty,
-          movement_time: movementTime,
-          notes: notes.trim() || null,
+        const { error } = await supabase.rpc('transfer_quantity_stock', {
+          p_source_pool_id: sourceStock!.id,
+          p_dest_location_id: destinationId,
+          p_qty: qty,
+          p_movement_time: movementTime,
+          p_performed_by: BOSS_PROFILE_ID,
+          p_notes: notes.trim() || null,
         })
-        if (moveErr) throw moveErr
-
-        const { error: decErr } = await supabase
-          .from('inv_warehouse_stock')
-          .update({ quantity: freshStock.quantity - qty, updated_at: now })
-          .eq('id', sourceStock!.id)
-        if (decErr) throw decErr
-
-        let destQuery = supabase
-          .from('inv_warehouse_stock')
-          .select('id, quantity')
-          .eq('product_id', selectedProductId)
-          .eq('location_id', destinationId)
-          .eq('designation', srcDesignation)
-        if (srcClientId) destQuery = destQuery.eq('allocated_client_id', srcClientId)
-        else destQuery = destQuery.is('allocated_client_id', null)
-        const { data: existing } = await destQuery.maybeSingle()
-
-        if (existing) {
-          const { error } = await supabase
-            .from('inv_warehouse_stock')
-            .update({ quantity: existing.quantity + qty, updated_at: now })
-            .eq('id', existing.id)
-          if (error) throw error
-        } else {
-          const { error } = await supabase
-            .from('inv_warehouse_stock')
-            .insert({ product_id: selectedProductId, location_id: destinationId, allocated_client_id: srcClientId, designation: srcDesignation, quantity: qty })
-          if (error) throw error
-        }
+        if (error) throw error
 
         const product = qtyProducts.find(p => p.id === selectedProductId)
         toast('success', `Transferred ${qty}× ${product?.name ?? 'items'}`)
