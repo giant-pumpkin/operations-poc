@@ -558,6 +558,19 @@ Stock In (dedupe + uppercase + backdated) → Adjustment blocker tooltip (Availa
 - No auth / RLS. Anyone with the URL can write. Next hardening step.
 - No movement reversal mechanism yet.
 
+### Follow-up: movement chronology (migration `enforce_movement_chronology`)
+
+User backdated a Manhattan Mount transfer to 11-Sep, nine days before the 20-Sep stock-in that created the units. The RPC had checked the pool's *current* quantity (10 ≥ 5) but not whether stock existed *at the movement time*.
+
+Fix is a `BEFORE INSERT` trigger on `inv_stock_movement`, so it covers RPCs and the remaining app-side inserts alike:
+
+- **Serial items** — `movement_time` must be ≥ the item's latest existing movement. Error names the serial and both dates.
+- **Quantity items** — for any outgoing row, the running balance of that product at `from_location` must stay ≥ 0 at every point from `movement_time` onward (window-function scan of the ledger including the new row). Catches both "before stock existed" and "makes a later balance negative".
+
+Verified with six rolled-back cases (reject before stock-in / accept after / reject mid-history overdraw / accept mid-history fit / reject serial backdate / accept serial forward). The pre-existing 11-Sep row is still in the ledger — trigger is insert-time only.
+
+Known limit: the quantity check is per (product, location), not per client pool, because quantity movement rows don't record pool identity. Adding `allocated_client_id`/`designation` to `inv_stock_movement` would allow a per-pool check later.
+
 ### Dev server note
 
 `npm run dev &` suspends Vite (it reads the terminal for shortcuts → SIGTTIN). Use the `dev` launch config in `.claude/launch.json`, or `npm run dev < /dev/null &`.
