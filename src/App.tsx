@@ -11,6 +11,8 @@ import Adjustment from './pages/Adjustment'
 import Movements from './pages/Movements'
 import Jobs from './pages/Jobs'
 import JobDetail from './pages/JobDetail'
+import Quotes from './pages/Quotes'
+import QuoteDetail from './pages/QuoteDetail'
 
 export default function App() {
   return (
@@ -25,6 +27,8 @@ export default function App() {
             <Route path="/stock-in" element={<StockIn />} />
             <Route path="/transfer" element={<Transfer />} />
             <Route path="/adjustment" element={<Adjustment />} />
+            <Route path="/quotes" element={<Quotes />} />
+            <Route path="/quotes/:id" element={<QuoteDetail />} />
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/jobs/:id" element={<JobDetail />} />
             <Route path="/movements" element={<Movements />} />

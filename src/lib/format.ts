@@ -7,6 +7,12 @@ export function formatDate(input: string | Date | null | undefined): string {
   return `${String(d.getDate()).padStart(2, '0')}-${MONTHS[d.getMonth()]}-${d.getFullYear()}`
 }
 
+export function formatMoney(amount: number, currency: string): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency, currencyDisplay: 'code', minimumFractionDigits: 2 })
+    .format(amount)
+    .replace(/^([A-Z]{3})\s?/, '$1 ')
+}
+
 export function formatDateTime(input: string | Date | null | undefined): string {
   if (!input) return '—'
   const d = input instanceof Date ? input : new Date(input)

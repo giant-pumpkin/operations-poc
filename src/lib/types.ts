@@ -106,6 +106,8 @@ export interface Job {
   completed_date: string | null
   closed_date: string | null
   notes: string | null
+  partner_confirmed_at?: string | null
+  partner_confirmed_by?: string | null
   created_at: string
   updated_at: string
   client?: Company
@@ -121,10 +123,86 @@ export interface JobItem {
   planned_quantity: number
   fulfilled_quantity: number
   status: 'planned' | 'partial' | 'fulfilled'
+  quote_line_id?: string | null
   created_at: string
   product?: Product
   serials?: JobItemSerial[]
 }
+
+export interface Quote {
+  id: string
+  quote_number: string
+  version: number
+  supersedes_quote_id: string | null
+  client_id: string
+  title: string | null
+  currency: 'THB' | 'MYR' | 'USD'
+  tax_rate: number
+  payment_terms: 'deposit_before_work' | 'work_before_deposit'
+  deposit_pct: number
+  status: 'draft' | 'sent' | 'signed' | 'declined' | 'superseded'
+  sent_at: string | null
+  signed_at: string | null
+  signed_evidence: string | null
+  declined_at: string | null
+  deposit_status: 'not_required' | 'pending' | 'invoiced' | 'paid'
+  deposit_invoice_ref: string | null
+  deposit_set_by: string | null
+  deposit_set_at: string | null
+  notes: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+  client?: Company
+  lines?: QuoteLine[]
+  deposit_setter?: Profile
+}
+
+export interface QuoteLine {
+  id: string
+  quote_id: string
+  line_type: 'hardware' | 'service' | 'subscription'
+  product_id: string | null
+  description: string
+  location_id: string | null
+  quantity: number
+  unit_price: number
+  term_months: number | null
+  billing_cycle: 'monthly' | 'quarterly' | 'annual' | null
+  sort_order: number
+  product?: Product
+  location?: Location
+}
+
+export interface QuoteLineCoverage {
+  quote_line_id: string
+  quote_id: string
+  quantity: number
+  in_jobs: number
+  remaining: number
+}
+
+export interface SubContract {
+  id: string
+  quote_id: string | null
+  quote_line_id: string | null
+  client_id: string
+  location_id: string | null
+  description: string
+  quantity: number
+  term_months: number
+  billing_cycle: string
+  unit_price: number
+  currency: string
+  status: 'pending_activation' | 'active' | 'ended' | 'cancelled'
+  start_date: string | null
+  end_date: string | null
+  created_at: string
+}
+
+export type QuoteStatus = Quote['status']
+export type DepositStatus = Quote['deposit_status']
+export type QuoteLineType = QuoteLine['line_type']
 
 export interface JobItemSerial {
   id: string

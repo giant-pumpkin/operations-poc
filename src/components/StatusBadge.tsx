@@ -1,4 +1,4 @@
-import type { ItemStatus, MovementType, TrackingType, Designation, JobStatus, JobItemDirection } from '../lib/types'
+import type { ItemStatus, MovementType, TrackingType, Designation, JobStatus, JobItemDirection, QuoteStatus, DepositStatus, QuoteLineType } from '../lib/types'
 
 const STATUS_STYLES: Record<ItemStatus, string> = {
   available: 'bg-success-50 text-success-700',
@@ -102,6 +102,59 @@ export function DirectionBadge({ direction }: { direction: JobItemDirection }) {
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${DIRECTION_STYLES[direction]}`}>
       {formatLabel(direction)}
+    </span>
+  )
+}
+
+const QUOTE_STATUS_STYLES: Record<QuoteStatus, string> = {
+  draft: 'bg-neutral-100 text-neutral-500',
+  sent: 'bg-info-50 text-info-700',
+  signed: 'bg-success-50 text-success-700',
+  declined: 'bg-danger-50 text-danger-700',
+  superseded: 'bg-neutral-100 text-neutral-400',
+}
+
+export function QuoteStatusBadge({ status }: { status: QuoteStatus }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${QUOTE_STATUS_STYLES[status]}`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
+      {formatLabel(status)}
+    </span>
+  )
+}
+
+const DEPOSIT_STYLES: Record<DepositStatus, string> = {
+  not_required: 'bg-neutral-100 text-neutral-500',
+  pending: 'bg-warning-50 text-warning-700',
+  invoiced: 'bg-info-50 text-info-700',
+  paid: 'bg-success-50 text-success-700',
+}
+
+const DEPOSIT_LABEL: Record<DepositStatus, string> = {
+  not_required: 'No deposit',
+  pending: 'Deposit pending',
+  invoiced: 'Deposit invoiced',
+  paid: 'Deposit paid',
+}
+
+export function DepositBadge({ status }: { status: DepositStatus }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${DEPOSIT_STYLES[status]}`}>
+      {DEPOSIT_LABEL[status]}
+    </span>
+  )
+}
+
+const LINE_TYPE_STYLES: Record<QuoteLineType, string> = {
+  hardware: 'bg-info-50 text-info-700',
+  service: 'bg-neutral-100 text-neutral-700',
+  subscription: 'bg-[#F3E8FF] text-[#7C3AED]',
+}
+
+export function LineTypeBadge({ type }: { type: QuoteLineType }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${LINE_TYPE_STYLES[type]}`}>
+      {formatLabel(type)}
     </span>
   )
 }

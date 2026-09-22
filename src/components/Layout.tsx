@@ -8,6 +8,7 @@ import {
   ClipboardMinus,
   ArrowLeftRight,
   Briefcase,
+  FileText,
   UserRound,
   ChevronDown,
 } from 'lucide-react'
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { to: '/stock-in', label: 'Stock In', icon: PackagePlus },
   { to: '/transfer', label: 'Transfer', icon: ArrowRightLeft },
   { to: '/adjustment', label: 'Adjustment', icon: ClipboardMinus },
+  { to: '/quotes', label: 'Quotes', icon: FileText },
   { to: '/jobs', label: 'Jobs', icon: Briefcase },
   { to: '/movements', label: 'Movements', icon: ArrowLeftRight },
 ]
