@@ -21,6 +21,19 @@ const DESIGNATION_OPTIONS = [
   { value: 'maintenance', label: 'Maintenance' },
 ]
 
+interface OpenReceiptLine {
+  id: string
+  quantity_ordered: number
+  quantity_received: number
+  receipt: {
+    id: string
+    receipt_number: string
+    po_reference: string | null
+    status: string
+    job: { job_number: string; client_id: string; client: { name: string } | null } | null
+  }
+}
+
 export default function StockIn() {
   const { toast } = useToast()
   const { profileId: activeProfileId } = useProfile()
@@ -37,6 +50,25 @@ export default function StockIn() {
   const [designation, setDesignation] = useState('deployment')
   const [movementDate, setMovementDate] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  // receiving against a stock order
+  const [openReceiptLines, setOpenReceiptLines] = useState<OpenReceiptLine[]>([])
+  const [receiptLineId, setReceiptLineId] = useState('')
+  const receiptLine = openReceiptLines.find(l => l.id === receiptLineId) ?? null
+
+  useEffect(() => {
+    setReceiptLineId('')
+    if (!productId) { setOpenReceiptLines([]); return }
+    supabase
+      .from('inv_expected_receipt_lines')
+      .select('id, quantity_ordered, quantity_received, receipt:inv_expected_receipts!inner(id, receipt_number, po_reference, status, job:job_jobs(job_number, client_id, client:mock_cl_companies!job_jobs_client_id_fkey(name)))')
+      .eq('product_id', productId)
+      .in('receipt.status', ['ordered', 'partially_received'])
+      .then(({ data }) => {
+        const rows = ((data ?? []) as unknown as OpenReceiptLine[]).filter(l => l.quantity_received < l.quantity_ordered)
+        setOpenReceiptLines(rows)
+      })
+  }, [productId])
 
   useEffect(() => {
     supabase
@@ -104,6 +136,22 @@ export default function StockIn() {
         return
       }
 
+      if (receiptLine) {
+        const { data: received, error } = await supabase.rpc('receive_serials_against_receipt', {
+          p_receipt_line_id: receiptLine.id,
+          p_warehouse_id: warehouseId,
+          p_serials: lines,
+          p_movement_time: movementTime.toISOString(),
+          p_profile: activeProfileId,
+          p_warranty_years: warrantyDuration ? Number(warrantyDuration) : null,
+          p_designation: designation,
+        })
+        if (error) throw error
+        toast('success', `Received ${received} item${received === 1 ? '' : 's'} against ${receiptLine.receipt.receipt_number} for ${receiptLine.receipt.job?.job_number ?? 'job'}.`)
+        resetForm()
+        return
+      }
+
       const items = lines.map(sn => ({
         product_id: productId,
         location_id: warehouseId,
@@ -163,6 +211,22 @@ export default function StockIn() {
 
     setSubmitting(true)
     try {
+      if (receiptLine) {
+        const { error } = await supabase.rpc('receive_quantity_against_receipt', {
+          p_receipt_line_id: receiptLine.id,
+          p_warehouse_id: warehouseId,
+          p_qty: qty,
+          p_movement_time: movementTime.toISOString(),
+          p_profile: activeProfileId,
+          p_designation: designation,
+        })
+        if (error) throw error
+        const product = products.find(p => p.id === productId)
+        toast('success', `Received ${qty}× ${product?.name ?? 'items'} against ${receiptLine.receipt.receipt_number}.`)
+        resetForm()
+        return
+      }
+
       const { error } = await supabase.rpc('stock_in_quantity', {
         p_product_id: productId,
         p_location_id: warehouseId,
@@ -229,6 +293,30 @@ export default function StockIn() {
             />
           </div>
 
+          {/* Receive against an open stock order */}
+          {productId && openReceiptLines.length > 0 && (
+            <div className="p-3 rounded-lg bg-brand-50/60 border border-brand-100 animate-rise">
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
+                Receiving against a stock order? <span className="text-neutral-400 font-normal">(optional)</span>
+              </label>
+              <SearchableSelect
+                options={openReceiptLines.map(l => ({
+                  value: l.id,
+                  label: `${l.receipt.receipt_number} · ${l.receipt.job?.job_number ?? '—'} · ${l.receipt.job?.client?.name ?? 'Unallocated'}`,
+                  sublabel: `${l.quantity_ordered - l.quantity_received} remaining${l.receipt.po_reference ? ` · PO ${l.receipt.po_reference}` : ''}`,
+                }))}
+                value={receiptLineId}
+                onChange={setReceiptLineId}
+                placeholder="Plain stock-in (no order)"
+              />
+              {receiptLine && (
+                <p className="text-[12px] text-neutral-600 mt-2">
+                  Items will be allocated to <span className="font-medium">{receiptLine.receipt.job?.client?.name}</span> for {receiptLine.receipt.job?.job_number}, and the PO reference goes on every movement.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Warehouse select */}
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-1">
@@ -245,17 +333,19 @@ export default function StockIn() {
           {mode === 'serial_tracked' ? (
             <>
               {/* Allocate to client */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">
-                  Allocate to Client <span className="text-neutral-400 font-normal">(optional)</span>
-                </label>
-                <SearchableSelect
-                  options={companies.map(c => ({ value: c.id, label: c.name }))}
-                  value={allocatedClientId}
-                  onChange={setAllocatedClientId}
-                  placeholder="Unallocated"
-                />
-              </div>
+              {!receiptLine && (
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">
+                    Allocate to Client <span className="text-neutral-400 font-normal">(optional)</span>
+                  </label>
+                  <SearchableSelect
+                    options={companies.map(c => ({ value: c.id, label: c.name }))}
+                    value={allocatedClientId}
+                    onChange={setAllocatedClientId}
+                    placeholder="Unallocated"
+                  />
+                </div>
+              )}
 
               {/* Warranty duration */}
               <div>
@@ -306,17 +396,19 @@ export default function StockIn() {
           ) : (
             <>
               {/* Allocate to client */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">
-                  Allocate to Client <span className="text-neutral-400 font-normal">(optional)</span>
-                </label>
-                <SearchableSelect
-                  options={companies.map(c => ({ value: c.id, label: c.name }))}
-                  value={allocatedClientId}
-                  onChange={setAllocatedClientId}
-                  placeholder="Unallocated"
-                />
-              </div>
+              {!receiptLine && (
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">
+                    Allocate to Client <span className="text-neutral-400 font-normal">(optional)</span>
+                  </label>
+                  <SearchableSelect
+                    options={companies.map(c => ({ value: c.id, label: c.name }))}
+                    value={allocatedClientId}
+                    onChange={setAllocatedClientId}
+                    placeholder="Unallocated"
+                  />
+                </div>
+              )}
 
               {/* Designation */}
               <div>

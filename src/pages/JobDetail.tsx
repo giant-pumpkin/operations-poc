@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useProfile } from '../lib/profile'
 import type {
-  Job, JobItem, JobAssignee, InventoryItem, Product, Location, Profile, JobStatus, Quote,
+  Job, JobItem, JobAssignee, InventoryItem, Product, Location, Profile, JobStatus, Quote, Company,
 } from '../lib/types'
 import { JobStatusBadge, JobTypeBadge, DirectionBadge, QuoteStatusBadge, DepositBadge } from '../components/StatusBadge'
 import { formatMoney } from '../lib/format'
@@ -11,9 +11,39 @@ import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
 import MovementDateInput from '../components/MovementDateInput'
 import DateTimePicker from '../components/DateTimePicker'
-import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Pencil, Check, Trash2, Link2, Unlink, Handshake } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Pencil, Check, Trash2, Link2, Unlink, Handshake, PackagePlus } from 'lucide-react'
 
 type LinkedQuote = Quote & { lines: { id: string; quantity: number; unit_price: number; line_type: string }[]; linked_at: string }
+
+interface SupplyRow {
+  job_item_id: string
+  product_id: string
+  product_name: string
+  tracking_type: 'serial_tracked' | 'quantity_only'
+  planned_quantity: number
+  fulfilled_quantity: number
+  outstanding: number
+  available_pool: number
+  incoming: number
+}
+
+interface Receipt {
+  id: string
+  receipt_number: string
+  po_reference: string | null
+  expected_date: string | null
+  status: 'ordered' | 'partially_received' | 'received' | 'cancelled'
+  created_at: string
+  supplier: { name: string } | null
+  lines: { id: string; product_id: string; quantity_ordered: number; quantity_received: number; product: { name: string } | null }[]
+}
+
+const RECEIPT_STATUS_STYLE: Record<Receipt['status'], string> = {
+  ordered: 'bg-info-50 text-info-700',
+  partially_received: 'bg-warning-50 text-warning-700',
+  received: 'bg-success-50 text-success-700',
+  cancelled: 'bg-neutral-100 text-neutral-400',
+}
 
 function quoteTotal(q: { lines: { quantity: number; unit_price: number }[]; tax_rate: number }): number {
   const subtotal = q.lines.reduce((s, l) => s + l.quantity * Number(l.unit_price), 0)
@@ -105,6 +135,18 @@ export default function JobDetail() {
   const [linkQuoteId, setLinkQuoteId] = useState('')
   const [quoteBusy, setQuoteBusy] = useState(false)
 
+  // stock supply + orders
+  const [supply, setSupply] = useState<SupplyRow[]>([])
+  const [receipts, setReceipts] = useState<Receipt[]>([])
+  const [suppliers, setSuppliers] = useState<Company[]>([])
+  const [showOrderForm, setShowOrderForm] = useState(false)
+  const [orderSupplierId, setOrderSupplierId] = useState('')
+  const [orderPoRef, setOrderPoRef] = useState('')
+  const [orderEta, setOrderEta] = useState('')
+  const [orderNotes, setOrderNotes] = useState('')
+  const [orderQty, setOrderQty] = useState<Record<string, string>>({})
+  const [orderBusy, setOrderBusy] = useState(false)
+
   useEffect(() => {
     fetchJob()
   }, [id])
@@ -149,6 +191,19 @@ export default function JobDetail() {
       setLinkedQuotes(linked)
       const linkedIds = new Set(linked.map(q => q.id))
       setLinkableQuotes(((allRes.data ?? []) as unknown as LinkedQuote[]).filter(q => !linkedIds.has(q.id)))
+
+      const [supplyRes, receiptsRes, suppliersRes] = await Promise.all([
+        supabase.from('job_item_supply').select('*').eq('job_id', id),
+        supabase
+          .from('inv_expected_receipts')
+          .select('*, supplier:mock_cl_companies(name), lines:inv_expected_receipt_lines(id, product_id, quantity_ordered, quantity_received, product:inv_product_registry(name))')
+          .eq('job_id', id)
+          .order('created_at'),
+        supabase.from('mock_cl_companies').select('*').eq('status', 'supplier').order('name'),
+      ])
+      setSupply((supplyRes.data as SupplyRow[]) ?? [])
+      setReceipts((receiptsRes.data as unknown as Receipt[]) ?? [])
+      setSuppliers((suppliersRes.data as Company[]) ?? [])
     }
     if (itemsRes.data) setJobItems(itemsRes.data as unknown as JobItem[])
     if (assigneesRes.data) setAssignees(assigneesRes.data as unknown as JobAssignee[])
@@ -477,6 +532,65 @@ export default function JobDetail() {
       toast('error', err.message || 'Failed to unlink quote')
     } finally {
       setQuoteBusy(false)
+    }
+  }
+
+  function openOrderForm() {
+    const initial: Record<string, string> = {}
+    for (const s of supply) initial[s.product_id] = String(Math.max(0, s.outstanding - s.available_pool - s.incoming))
+    setOrderQty(initial)
+    setOrderSupplierId(suppliers.length === 1 ? suppliers[0].id : '')
+    setOrderPoRef('')
+    setOrderEta('')
+    setOrderNotes('')
+    setShowOrderForm(true)
+  }
+
+  const orderDisabledReason = (() => {
+    if (!orderSupplierId) return 'Select a supplier'
+    if (!orderPoRef.trim()) return 'Enter the ApprovalMax PO reference'
+    if (!supply.some(s => Number(orderQty[s.product_id] ?? '0') > 0)) return 'Enter a quantity for at least one product'
+    return null
+  })()
+
+  async function handleCreateOrder() {
+    if (!job || orderDisabledReason) return
+    setOrderBusy(true)
+    try {
+      const lines = supply
+        .map(s => ({ product_id: s.product_id, qty: Number(orderQty[s.product_id] ?? '0') }))
+        .filter(l => l.qty > 0)
+      const { error } = await supabase.rpc('create_expected_receipt', {
+        p_job_id: job.id,
+        p_supplier_id: orderSupplierId,
+        p_po_reference: orderPoRef.trim(),
+        p_expected_date: orderEta ? orderEta.slice(0, 10) : null,
+        p_lines: lines,
+        p_profile: activeProfileId,
+        p_notes: orderNotes.trim() || null,
+      })
+      if (error) throw error
+      toast('success', 'Stock order recorded')
+      setShowOrderForm(false)
+      fetchJob()
+    } catch (err: any) {
+      toast('error', err.message || 'Failed to record order')
+    } finally {
+      setOrderBusy(false)
+    }
+  }
+
+  async function handleCancelOrder(receiptId: string) {
+    setOrderBusy(true)
+    try {
+      const { error } = await supabase.rpc('cancel_expected_receipt', { p_receipt_id: receiptId, p_profile: activeProfileId })
+      if (error) throw error
+      toast('success', 'Order cancelled')
+      fetchJob()
+    } catch (err: any) {
+      toast('error', err.message || 'Failed to cancel order')
+    } finally {
+      setOrderBusy(false)
     }
   }
 
@@ -924,6 +1038,146 @@ export default function JobDetail() {
           </table>
         )}
       </div>
+
+      {/* Stock supply + orders */}
+      {supply.length > 0 && (
+        <div className="bg-neutral-0 border border-neutral-200 rounded-xl p-5 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[14px] font-semibold text-neutral-800">Stock for this job</h2>
+            <div className="relative group">
+              <button
+                onClick={openOrderForm}
+                disabled={itemsLocked}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-neutral-200 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <PackagePlus size={13} /> Order stock
+              </button>
+              {itemsLockedReason && <div className={`${tooltipClass} left-auto right-0`}>{itemsLockedReason}</div>}
+            </div>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-neutral-50 text-[11px] uppercase tracking-[0.06em] text-neutral-500">
+                <th className="text-left px-3 py-2 font-medium">Product</th>
+                <th className="text-right px-3 py-2 font-medium">Still needed</th>
+                <th className="text-right px-3 py-2 font-medium">In client pool</th>
+                <th className="text-right px-3 py-2 font-medium">On order</th>
+                <th className="text-right px-3 py-2 font-medium">Shortfall</th>
+              </tr>
+            </thead>
+            <tbody>
+              {supply.map(s => {
+                const shortfall = Math.max(0, s.outstanding - s.available_pool - s.incoming)
+                const coveredByIncoming = shortfall === 0 && s.outstanding > s.available_pool
+                return (
+                  <tr key={s.job_item_id} className="border-t border-neutral-100">
+                    <td className="px-3 py-2 text-[12px] text-neutral-800">{s.product_name}</td>
+                    <td className="px-3 py-2 text-[12px] font-mono text-right text-neutral-700">{s.outstanding}</td>
+                    <td className="px-3 py-2 text-[12px] font-mono text-right text-neutral-700">{s.available_pool}</td>
+                    <td className="px-3 py-2 text-[12px] font-mono text-right text-neutral-700">{s.incoming > 0 ? s.incoming : <span className="text-neutral-300">0</span>}</td>
+                    <td className={`px-3 py-2 text-[12px] font-mono text-right font-semibold ${shortfall > 0 ? 'text-danger-700' : coveredByIncoming ? 'text-warning-700' : 'text-success-700'}`}>
+                      {shortfall > 0 ? `−${shortfall}` : coveredByIncoming ? 'covered when order lands' : 'covered'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {receipts.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <div className="text-[11px] uppercase tracking-[0.06em] text-neutral-500">Orders</div>
+              {receipts.map(r => {
+                const anyReceived = r.lines.some(l => l.quantity_received > 0)
+                return (
+                  <div key={r.id} className="p-3 rounded-lg bg-neutral-50">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-[13px] min-w-0">
+                        <span className="font-mono text-neutral-800">{r.receipt_number}</span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${RECEIPT_STATUS_STYLE[r.status]}`}>{formatLabel(r.status)}</span>
+                        <span className="text-neutral-500 truncate">{r.supplier?.name ?? 'No supplier'}{r.po_reference ? ` · PO ${r.po_reference}` : ''}</span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 text-[12px] text-neutral-500">
+                        <span>ETA {formatDate(r.expected_date)}</span>
+                        {r.status !== 'cancelled' && r.status !== 'received' && !itemsLocked && (
+                          <div className="relative group">
+                            <button onClick={() => handleCancelOrder(r.id)} disabled={orderBusy || anyReceived} className="p-1.5 rounded-md text-neutral-400 hover:bg-danger-50 hover:text-danger-500 disabled:opacity-30 disabled:hover:bg-transparent" aria-label="Cancel order">
+                              <X size={13} />
+                            </button>
+                            {anyReceived && <div className={`${tooltipClass} left-auto right-0`}>Stock already received against this order</div>}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] text-neutral-600">
+                      {r.lines.map(l => (
+                        <span key={l.id}><span className="font-mono">{l.quantity_received}/{l.quantity_ordered}</span> {l.product?.name}</span>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {showOrderForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 animate-fade-in">
+          <div className="bg-neutral-0 rounded-2xl shadow-lg w-full max-w-lg border border-neutral-200 animate-modal">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200">
+              <h2 className="text-[15px] font-semibold text-neutral-900">Order stock for {job.job_number}</h2>
+              <button onClick={() => setShowOrderForm(false)} className="p-1.5 rounded-md hover:bg-neutral-100 text-neutral-400"><X size={16} /></button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-[12px] text-neutral-500">Raise the PO in ApprovalMax as usual, then record it here so the stock counts as incoming for this job. Received units will land in {job.client?.name}'s pool.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">Supplier <span className="text-danger-500">*</span></label>
+                  <SearchableSelect options={suppliers.map(s => ({ value: s.id, label: s.name }))} value={orderSupplierId} onChange={setOrderSupplierId} placeholder="Select supplier…" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">PO reference <span className="text-danger-500">*</span></label>
+                  <input value={orderPoRef} onChange={e => setOrderPoRef(e.target.value)} placeholder="e.g. PO-2026-0117" className="w-full h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+              </div>
+              <DateTimePicker value={orderEta} onChange={setOrderEta} label="Expected delivery" allowFuture placeholder="Optional" />
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Quantities <span className="text-neutral-400 font-normal">(prefilled with the shortfall)</span></label>
+                <div className="border border-neutral-200 rounded-lg divide-y divide-neutral-100">
+                  {supply.map(s => (
+                    <div key={s.product_id} className="flex items-center gap-3 px-3 py-2 text-[12px]">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-neutral-800 truncate">{s.product_name}</div>
+                        <div className="text-neutral-400 text-[11px]">needs {s.outstanding} · pool {s.available_pool} · on order {s.incoming}</div>
+                      </div>
+                      <input
+                        inputMode="numeric"
+                        value={orderQty[s.product_id] ?? ''}
+                        onChange={e => setOrderQty(prev => ({ ...prev, [s.product_id]: e.target.value.replace(/\D/g, '').slice(0, 5) }))}
+                        className="w-20 h-9 px-2 rounded-md border border-neutral-200 text-right font-mono text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">Notes <span className="text-neutral-400 font-normal">(optional)</span></label>
+                <textarea value={orderNotes} onChange={e => setOrderNotes(e.target.value)} rows={2} className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-neutral-200">
+              <button onClick={() => setShowOrderForm(false)} className="h-10 px-4 rounded-lg border border-neutral-200 text-[13px] font-medium text-neutral-700 hover:bg-neutral-50">Cancel</button>
+              <div className="relative group">
+                <button onClick={handleCreateOrder} disabled={orderBusy || orderDisabledReason !== null} className="h-10 px-4 rounded-lg bg-neutral-900 text-neutral-0 text-[13px] font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed">
+                  {orderBusy ? 'Saving…' : 'Record order'}
+                </button>
+                {orderDisabledReason && <div className={`${tooltipClass} left-auto right-0`}>{orderDisabledReason}</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Serial / Quantity Entry */}
       {canEnter && (

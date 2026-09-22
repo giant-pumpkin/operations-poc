@@ -18,6 +18,7 @@ interface TrackedItem {
 
 interface UntrackedRow {
   id: string
+  productId: string
   productName: string
   sku: string
   warehouseName: string
@@ -39,6 +40,7 @@ interface PoolRow {
   counts: StatusCounts
   total: number
   committed: number
+  incoming: number
 }
 
 interface ProductGroup {
@@ -49,6 +51,7 @@ interface ProductGroup {
   total: number
   pools: PoolRow[]
   committed: number
+  incoming: number
 }
 
 interface WarehouseRow {
@@ -62,6 +65,7 @@ interface UntrackedGroup {
   productName: string
   sku: string
   totalQuantity: number
+  incoming: number
   warehouses: WarehouseRow[]
 }
 
@@ -114,6 +118,15 @@ function ExpandableRows({ pools, expanded, showCommitted }: { pools: PoolRow[]; 
               )}
             </td>
           )}
+          {showCommitted && (
+            <td className="px-3 py-1.5 font-mono text-[12px] text-center">
+              {pool.incoming > 0 ? (
+                <span className="text-info-700">+{pool.incoming}</span>
+              ) : (
+                <span className="text-neutral-300">0</span>
+              )}
+            </td>
+          )}
           {REMAINING_STATUSES.map(s => (
             <td key={s} className="px-3 py-1.5 font-mono text-[12px] text-center">
               {pool.counts[s] > 0 ? (
@@ -130,7 +143,7 @@ function ExpandableRows({ pools, expanded, showCommitted }: { pools: PoolRow[]; 
   )
 }
 
-function ExpandableWarehouseRows({ warehouses, expanded }: { warehouses: WarehouseRow[]; expanded: boolean }) {
+function ExpandableWarehouseRows({ warehouses, expanded, showIncomingColumn }: { warehouses: WarehouseRow[]; expanded: boolean; showIncomingColumn: boolean }) {
   const ref = useRef<HTMLTableSectionElement>(null)
   const [height, setHeight] = useState(0)
 
@@ -157,7 +170,7 @@ function ExpandableWarehouseRows({ warehouses, expanded }: { warehouses: Warehou
           : `Unallocated · ${designationLabel}`
         return (
           <tr key={i} className="bg-neutral-0 border-t border-neutral-100">
-            <td colSpan={2} className="px-3 py-1.5 text-[12px] text-neutral-700 pl-10">{poolLabel}</td>
+            <td colSpan={showIncomingColumn ? 3 : 2} className="px-3 py-1.5 text-[12px] text-neutral-700 pl-10">{poolLabel}</td>
             <td className="px-3 py-1.5 font-mono text-[12px] text-neutral-700 text-right">{w.quantity}</td>
           </tr>
         )
@@ -171,6 +184,8 @@ export default function Stock() {
   const [untracked, setUntracked] = useState<UntrackedRow[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [plannedByProductClient, setPlannedByProductClient] = useState<Map<string, { qty: number; clientId: string; clientName: string }>>(new Map())
+  const [incomingByProductClient, setIncomingByProductClient] = useState<Map<string, number>>(new Map())
+  const [productCatalog, setProductCatalog] = useState<{ id: string; name: string; sku: string; tracking_type: string }[]>([])
   const [activeTab, setActiveTab] = useState('')
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [expandedQtyProducts, setExpandedQtyProducts] = useState<Set<string>>(new Set())
@@ -180,14 +195,14 @@ export default function Stock() {
     async function load() {
       setLoading(true)
 
-      const [itemsRes, stockRes, locRes, jobItemsRes] = await Promise.all([
+      const [itemsRes, stockRes, locRes, jobItemsRes, incomingRes, catalogRes] = await Promise.all([
         supabase
           .from('inv_inventory_item')
           .select('id, status, location_id, designation, allocated_client:mock_cl_companies!inv_inventory_item_allocated_client_id_fkey(id, name), product:inv_product_registry(id, name, sku)')
           .neq('status', 'written_off'),
         supabase
           .from('inv_warehouse_stock')
-          .select('id, quantity, designation, allocated_client:mock_cl_companies!inv_warehouse_stock_allocated_client_id_fkey(id, name), product:inv_product_registry(name, sku), location:mock_cl_locations(id, name)'),
+          .select('id, quantity, designation, allocated_client:mock_cl_companies!inv_warehouse_stock_allocated_client_id_fkey(id, name), product:inv_product_registry(id, name, sku), location:mock_cl_locations(id, name)'),
         supabase
           .from('mock_cl_locations')
           .select('id, name')
@@ -196,7 +211,14 @@ export default function Stock() {
           .from('job_items')
           .select('product_id, planned_quantity, fulfilled_quantity, direction, job:job_jobs(client_id, status, client:mock_cl_companies!job_jobs_client_id_fkey(name))')
           .eq('direction', 'outbound'),
+        supabase.from('inv_incoming_by_product_client').select('*'),
+        supabase.from('inv_product_registry').select('id, name, sku, tracking_type').eq('active', true),
       ])
+
+      if (incomingRes.data) {
+        setIncomingByProductClient(new Map((incomingRes.data as any[]).map(r => [`${r.product_id}__${r.client_id}`, r.incoming as number])))
+      }
+      if (catalogRes.data) setProductCatalog(catalogRes.data as any[])
 
       if (itemsRes.data) {
         setTrackedItems(
@@ -218,6 +240,7 @@ export default function Stock() {
         setUntracked(
           stockRes.data.map((row: any) => ({
             id: row.id,
+            productId: row.product?.id ?? '',
             productName: row.product?.name ?? '—',
             sku: row.product?.sku ?? '—',
             warehouseName: row.location?.name ?? '—',
@@ -275,11 +298,25 @@ export default function Stock() {
           total: 0,
           pools: [],
           committed: 0,
+          incoming: 0,
         }
         products.set(item.productId, group)
       }
       group.counts[item.status]++
       group.total++
+    }
+
+    // Serial products with demand or stock on order but no units yet still need a row
+    if (activeTab === '') {
+      const demanded = new Set<string>()
+      for (const key of plannedByProductClient.keys()) demanded.add(key.split('__')[0])
+      for (const key of incomingByProductClient.keys()) demanded.add(key.split('__')[0])
+      for (const productId of demanded) {
+        if (products.has(productId)) continue
+        const p = productCatalog.find(c => c.id === productId)
+        if (!p || p.tracking_type !== 'serial_tracked') continue
+        products.set(productId, { productId, productName: p.name, sku: p.sku, counts: emptyCounts(), total: 0, pools: [], committed: 0, incoming: 0 })
+      }
     }
 
     for (const group of products.values()) {
@@ -293,7 +330,7 @@ export default function Stock() {
         const label = `${item.clientName} · ${designationLabel}`
         let pool = poolMap.get(poolKey)
         if (!pool) {
-          pool = { label, counts: emptyCounts(), total: 0, committed: 0 }
+          pool = { label, counts: emptyCounts(), total: 0, committed: 0, incoming: 0 }
           poolMap.set(poolKey, pool)
           poolClientIds.set(poolKey, item.clientId)
         }
@@ -305,6 +342,7 @@ export default function Stock() {
       for (const [poolKey, pool] of poolMap) {
         const clientId = poolClientIds.get(poolKey)
         pool.committed = clientId ? (plannedByProductClient.get(`${group.productId}__${clientId}`)?.qty ?? 0) : 0
+        pool.incoming = clientId ? (incomingByProductClient.get(`${group.productId}__${clientId}`) ?? 0) : 0
         if (clientId) distinctClientIds.add(clientId)
       }
 
@@ -320,6 +358,7 @@ export default function Stock() {
             counts: emptyCounts(),
             total: 0,
             committed: entry.qty,
+            incoming: incomingByProductClient.get(`${group.productId}__${entry.clientId}`) ?? 0,
           })
           distinctClientIds.add(entry.clientId)
         }
@@ -329,6 +368,10 @@ export default function Stock() {
         (sum, clientId) => sum + (plannedByProductClient.get(`${group.productId}__${clientId}`)?.qty ?? 0),
         0
       )
+      group.incoming = Array.from(distinctClientIds).reduce(
+        (sum, clientId) => sum + (incomingByProductClient.get(`${group.productId}__${clientId}`) ?? 0),
+        0
+      )
 
       group.pools = Array.from(poolMap.values()).sort((a, b) => a.label.localeCompare(b.label))
     }
@@ -336,7 +379,7 @@ export default function Stock() {
     return Array.from(products.values()).sort((a, b) =>
       a.productName.localeCompare(b.productName)
     )
-  }, [trackedItems, activeTab, plannedByProductClient])
+  }, [trackedItems, activeTab, plannedByProductClient, incomingByProductClient, productCatalog])
 
   const untrackedGroups = useMemo(() => {
     const filtered = activeTab
@@ -348,15 +391,33 @@ export default function Stock() {
       const key = `${row.productName}__${row.sku}`
       let group = grouped.get(key)
       if (!group) {
-        group = { productName: row.productName, sku: row.sku, totalQuantity: 0, warehouses: [] }
+        let incoming = 0
+        for (const [k, v] of incomingByProductClient) if (k.startsWith(`${row.productId}__`)) incoming += v
+        group = { productName: row.productName, sku: row.sku, totalQuantity: 0, incoming, warehouses: [] }
         grouped.set(key, group)
       }
       group.totalQuantity += row.quantity
       group.warehouses.push({ warehouseName: row.warehouseName, clientName: row.clientName, designation: row.designation, quantity: row.quantity })
     }
 
+    // Quantity products on order with no stock row yet
+    if (activeTab === '') {
+      const seenProductIds = new Set(filtered.map(r => r.productId))
+      const incomingByProduct = new Map<string, number>()
+      for (const [k, v] of incomingByProductClient) {
+        const pid = k.split('__')[0]
+        incomingByProduct.set(pid, (incomingByProduct.get(pid) ?? 0) + v)
+      }
+      for (const [pid, incoming] of incomingByProduct) {
+        if (seenProductIds.has(pid)) continue
+        const p = productCatalog.find(c => c.id === pid)
+        if (!p || p.tracking_type !== 'quantity_only') continue
+        grouped.set(`${p.name}__${p.sku}`, { productName: p.name, sku: p.sku, totalQuantity: 0, incoming, warehouses: [] })
+      }
+    }
+
     return Array.from(grouped.values()).sort((a, b) => a.productName.localeCompare(b.productName))
-  }, [untracked, activeTab])
+  }, [untracked, activeTab, incomingByProductClient, productCatalog])
 
   function toggleProduct(productId: string) {
     setExpandedProducts(prev => {
@@ -429,6 +490,9 @@ export default function Stock() {
                   {activeTab === '' && (
                     <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">committed</th>
                   )}
+                  {activeTab === '' && (
+                    <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">incoming</th>
+                  )}
                   {REMAINING_STATUSES.map(s => (
                     <th key={s} className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-center">
                       {s.replace(/_/g, ' ')}
@@ -475,6 +539,15 @@ export default function Stock() {
                             )}
                           </td>
                         )}
+                        {activeTab === '' && (
+                          <td className="px-3 py-2 font-mono text-[12px] text-center">
+                            {group.incoming > 0 ? (
+                              <span className="text-info-700 font-medium">+{group.incoming}</span>
+                            ) : (
+                              <span className="text-neutral-300">0</span>
+                            )}
+                          </td>
+                        )}
                         {REMAINING_STATUSES.map(s => (
                           <td key={s} className="px-3 py-2 font-mono text-[12px] text-center">
                             {group.counts[s] > 0 ? (
@@ -506,14 +579,18 @@ export default function Stock() {
           <div className="border border-neutral-200 rounded-xl overflow-hidden">
             <table className="w-full text-left" style={{ tableLayout: 'fixed' }}>
               <colgroup>
-                <col style={{ width: '45%' }} />
-                <col style={{ width: '30%' }} />
+                <col style={{ width: '40%' }} />
                 <col style={{ width: '25%' }} />
+                {activeTab === '' && <col style={{ width: '17%' }} />}
+                <col style={{ width: activeTab === '' ? '18%' : '35%' }} />
               </colgroup>
               <thead>
                 <tr className="bg-neutral-800">
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em]">Product</th>
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em]">SKU</th>
+                  {activeTab === '' && (
+                    <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-right">Incoming</th>
+                  )}
                   <th className="px-3 py-2 text-[11px] font-medium text-neutral-300 uppercase tracking-[0.06em] text-right">Quantity</th>
                 </tr>
               </thead>
@@ -538,10 +615,15 @@ export default function Stock() {
                           </span>
                         </td>
                         <td className="px-3 py-2 font-mono text-[12px] text-neutral-600">{group.sku}</td>
+                        {activeTab === '' && (
+                          <td className="px-3 py-2 font-mono text-[12px] text-right">
+                            {group.incoming > 0 ? <span className="text-info-700 font-medium">+{group.incoming}</span> : <span className="text-neutral-300">0</span>}
+                          </td>
+                        )}
                         <td className="px-3 py-2 font-mono text-[12px] text-neutral-800 text-right font-semibold">{group.totalQuantity}</td>
                       </tr>
                     </tbody>
-                    <ExpandableWarehouseRows warehouses={group.warehouses} expanded={isExpanded} />
+                    <ExpandableWarehouseRows warehouses={group.warehouses} expanded={isExpanded} showIncomingColumn={activeTab === ''} />
                   </Fragment>
                 )
               })}
