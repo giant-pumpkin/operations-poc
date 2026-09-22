@@ -430,7 +430,7 @@ export default function Inventory() {
 
       {/* Reallocate action bar */}
       {checkedIds.size > 0 && (
-        <div className="flex items-center gap-3 mb-3 p-3 bg-info-50 border border-info-200 rounded-lg">
+        <div className="flex items-center gap-3 mb-3 p-3 bg-info-50 border border-info-200 rounded-lg animate-rise">
           <span className="text-[13px] text-neutral-700 font-medium">{checkedIds.size} selected</span>
           {!showReallocate && !showBulkDesignation ? (
             <div className="flex gap-2">
@@ -590,7 +590,7 @@ export default function Inventory() {
           const client = selectedItem.allocated_client as unknown as Company | null
           const warranty = warrantyLabel(selectedItem)
           return (
-            <div className="w-96 shrink-0 bg-neutral-0 border border-neutral-200 rounded-xl overflow-hidden">
+            <div key={selectedItem.id} className="w-96 shrink-0 bg-neutral-0 border border-neutral-200 rounded-xl overflow-hidden animate-rise">
               <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-200 bg-neutral-100">
                 <h3 className="text-[13px] font-semibold text-neutral-800">Item Detail</h3>
                 <button onClick={() => setSelectedItem(null)} className="text-neutral-400 hover:text-neutral-600">

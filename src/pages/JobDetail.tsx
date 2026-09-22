@@ -575,7 +575,7 @@ export default function JobDetail() {
         </div>
 
         {showAddItem && (
-          <div className="flex items-end gap-2 mb-4 p-3 bg-neutral-50 rounded-lg">
+          <div className="flex items-end gap-2 mb-4 p-3 bg-neutral-50 rounded-lg animate-rise">
             <div className="flex-1">
               <label className="block text-[11px] text-neutral-500 mb-1">Product</label>
               <SearchableSelect
@@ -740,7 +740,7 @@ export default function JobDetail() {
                     {expanded && (
                       <tr className="border-t border-neutral-100 bg-neutral-25">
                         <td />
-                        <td colSpan={6} className="px-3 py-2">
+                        <td colSpan={6} className="px-3 py-2 animate-fade-in">
                           {serials.length === 0 ? (
                             <p className="text-[12px] text-neutral-400">No serials linked yet</p>
                           ) : (

@@ -120,7 +120,7 @@ export default function SearchableSelect(props: Props) {
         )}
 
         {open && (
-          <div className="absolute z-50 mt-1 w-full bg-neutral-0 border border-neutral-200 rounded-lg shadow-md overflow-hidden">
+          <div className="absolute z-50 mt-1 w-full bg-neutral-0 border border-neutral-200 rounded-lg shadow-md overflow-hidden animate-popover">
             <div className="max-h-56 overflow-y-auto py-1">
               {filtered.length === 0 ? (
                 <div className="px-3 py-2 text-[12px] text-neutral-400">No matches</div>
@@ -187,7 +187,7 @@ export default function SearchableSelect(props: Props) {
       )}
 
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-neutral-0 border border-neutral-200 rounded-lg shadow-md overflow-hidden">
+        <div className="absolute z-50 mt-1 w-full bg-neutral-0 border border-neutral-200 rounded-lg shadow-md overflow-hidden animate-popover">
           <div className="max-h-56 overflow-y-auto py-1">
             {singleProps.value && (
               <button

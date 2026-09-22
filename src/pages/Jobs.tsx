@@ -253,10 +253,9 @@ export default function Jobs() {
 
       {/* Create Job Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 animate-fade-in">
           <div
-            className="bg-neutral-0 rounded-2xl shadow-lg w-full max-w-lg border border-neutral-200"
-            style={{ animation: 'modalIn 180ms cubic-bezier(.2,0,0,1)' }}
+            className="bg-neutral-0 rounded-2xl shadow-lg w-full max-w-lg border border-neutral-200 animate-modal"
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200">
               <h2 className="text-base font-semibold text-neutral-900">Create Job</h2>

@@ -46,6 +46,59 @@
 
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'DM Mono', ui-monospace, monospace;
+
+  --ease-out-soft: cubic-bezier(0.2, 0, 0, 1);
+
+  --animate-popover: fade-in-down 160ms var(--ease-out-soft) both;
+  --animate-rise: fade-in-up 180ms var(--ease-out-soft) both;
+  --animate-fade-in: fade-in 160ms var(--ease-out-soft) both;
+  --animate-modal: scale-in 180ms var(--ease-out-soft) both;
+  --animate-toast-in: slide-in-right 200ms var(--ease-out-soft) both;
+  --animate-toast-out: slide-out-right 160ms var(--ease-out-soft) forwards;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fade-in-down {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes slide-in-right {
+    from { opacity: 0; transform: translateX(16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes slide-out-right {
+    from { opacity: 1; transform: translateX(0); }
+    to { opacity: 0; transform: translateX(16px); }
+  }
+}
+
+@layer base {
+  button {
+    transition-property: background-color, color, border-color, opacity, transform;
+    transition-duration: 120ms;
+    transition-timing-function: var(--ease-out-soft);
+  }
+  button:not(:disabled):active {
+    transform: scale(0.98);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 body {

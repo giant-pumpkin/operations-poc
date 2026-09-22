@@ -141,7 +141,7 @@ export default function MovementDateInput({ value, onChange, className = '' }: P
         </div>
 
         {open && (
-          <div className="absolute z-50 mt-1 w-[280px] bg-neutral-0 border border-neutral-200 rounded-xl shadow-lg p-3">
+          <div className="absolute z-50 mt-1 w-[280px] bg-neutral-0 border border-neutral-200 rounded-xl shadow-lg p-3 animate-popover">
             {/* Month header */}
             <div className="flex items-center justify-between mb-2">
               <button

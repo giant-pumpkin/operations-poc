@@ -66,19 +66,28 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   )
 }
 
+const EXIT_MS = 160
+
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
-  useEffect(() => {
-    const timer = setTimeout(onDismiss, 4000)
-    return () => clearTimeout(timer)
+  const [leaving, setLeaving] = useState(false)
+
+  const dismiss = useCallback(() => {
+    setLeaving(true)
+    setTimeout(onDismiss, EXIT_MS)
   }, [onDismiss])
+
+  useEffect(() => {
+    const timer = setTimeout(dismiss, 4000)
+    return () => clearTimeout(timer)
+  }, [dismiss])
 
   const Icon = ICONS[toast.type]
 
   return (
-    <div className={`flex items-center gap-2.5 bg-neutral-0 border border-neutral-200 border-l-4 ${BORDER_COLORS[toast.type]} rounded-lg px-3 py-2.5 shadow-md min-w-72 max-w-96 animate-[slideIn_180ms_cubic-bezier(.2,0,0,1)]`}>
+    <div className={`flex items-center gap-2.5 bg-neutral-0 border border-neutral-200 border-l-4 ${BORDER_COLORS[toast.type]} rounded-lg px-3 py-2.5 shadow-md min-w-72 max-w-96 ${leaving ? 'animate-toast-out' : 'animate-toast-in'}`}>
       <Icon size={16} className={ICON_COLORS[toast.type]} />
       <span className="flex-1 text-[13px] text-neutral-800">{toast.message}</span>
-      <button onClick={onDismiss} className="text-neutral-400 hover:text-neutral-600">
+      <button onClick={dismiss} className="text-neutral-400 hover:text-neutral-600">
         <X size={14} />
       </button>
     </div>
