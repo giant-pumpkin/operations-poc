@@ -575,6 +575,45 @@ Known limit: the quantity check is per (product, location), not per client pool,
 
 `npm run dev &` suspends Vite (it reads the terminal for shortcuts → SIGTTIN). Use the `dev` launch config in `.claude/launch.json`, or `npm run dev < /dev/null &`.
 
+---
+
+## Session 10 — Quote → Job → Stock → Greenlight bridge (2026-09-22)
+
+### Why
+
+The inventory core was solid but stood alone. The real process (diagrams 1, 2, 3.1, 3.2) runs signed quotation → job → PO in ApprovalMax → stock in → deposit check → schedule → install, across HubSpot, ApprovalMax, Xero, Airtable, email and WhatsApp. HubSpot is being retired and quoting moves into ConnectIQ (same Supabase project, same repo). Decisions taken with the user before building:
+
+- **No PO/bill sync.** ApprovalMax API is closed to us (Advanced plan) and the accounting documents already have a home. Inventory only needs to know *stock is coming* and *which PO it came from* — a small **Expected Receipt** record with a typed PO reference covers both.
+- **Quote ↔ Job is many-to-many.** One job can have a hardware quote, a fee quote and a services quote; a bulk quote can feed many jobs. Hardware lines may name a site.
+- **Receipts always belong to a job**, but not every job needs one (leftover stock is fine).
+- **Deposit gate:** every linked deposit-before-work quote must be paid. Revisions are immutable-once-sent; a revision is a new version.
+- **Suppliers** live in `mock_cl_companies` with `status = 'supplier'`.
+- **Profile switcher** stands in for auth so every write records who did it.
+
+### Built (5 commits: `c017230` `86283d6` `6bcd5b0` `1433ba0` `bb8ba01`)
+
+| Area | What |
+|------|------|
+| Profiles | `role` column; Finance / Sales / Deployment seeded; sidebar "Acting as" switcher persisted in localStorage; every write stamps the active profile |
+| Quotes | `crm_quotes` / `crm_quote_lines` (hardware · service · subscription; optional site; currency, tax, terms, deposit %); versioned, frozen once sent; deposit status derived to `not_required` when terms don't need one and stamped with who set it; `sub_contracts` stub created from subscription lines on signing |
+| Quote ↔ Job | `job_quotes` M:N; `job_items.quote_line_id` with a DB trigger capping consumption at the line quantity; `crm_quote_line_coverage` view ("3 of 3 in jobs") |
+| Functions | `mark_quote_sent/signed/declined`, `create_quote_revision`, `set_quote_deposit_status`, `link/unlink_quote`, `create_job_from_quote`, `confirm_job_partner`, `create_expected_receipt`, `cancel_expected_receipt`, `receive_serials_against_receipt`, `receive_quantity_against_receipt` — all atomic, all with rolled-back SQL test blocks |
+| Receipts | `inv_expected_receipts` / `_lines` (job, supplier, PO ref, ETA); receiving lands stock in the job client's pool with the RCV + PO on every movement; over-receipt refused; `inv_incoming_by_product_client` and `job_item_supply` views |
+| Readiness | `job_readiness` view: five gates (quote signed · deposit · stock · partner · schedule) → blocked / ready / scheduled / in progress / done; linked quotes judged by latest version |
+| Pages | `/quotes` list + New Quote; `/quotes/:id` (line editor while draft, live totals + deposit due, Send/Sign/Decline/Revise, finance deposit panel, versions, linked jobs, **Create Job from Quote** with per-line quantities); job detail gains Readiness card, Quotes card, **Stock for this job** (needed / pool / on order / shortfall) with **Order stock** form and orders list, Confirm partner; Jobs list gains Readiness column + filter; `/greenlight` board; Stock In gains "Receiving against a stock order?"; Stock overview gains an **Incoming** column (with phantom rows for on-order products with no stock yet) |
+
+### Browser-verified
+
+Sales: QT-000005 → 3× QM55C @ Siam Paragon, 3× mounts, installation service → totals THB 168,525 / deposit 84,262.50 → Sent (editor freezes) → Signed with evidence. Deployment: Create Job from Quote → JOB-00000013 (site prefilled from the line, 3+3 items, quote linked, unlink correctly blocked) → Confirm partner → Stock card shows mounts short −3 → Order stock RCV-000002, PO-2026-0117 → "covered when order lands", Stock overview Incoming +3 → Stock In receiving against RCV-000002 → pool KFC 3, movement note "Received on RCV-000002 · PO PO-2026-0117 for JOB-00000013", receipt `received 3/3`. Readiness: blocked while v2 was a draft and deposit pending; Greenlight board and Jobs column agree.
+
+### Known limits / notes
+
+- `available_pool` in `job_item_supply` is the client's whole pool, so two open jobs for the same client can both count the same unit. Fine at current volume; a per-job reservation would fix it.
+- Creating a job with a scheduled date bypasses the readiness gate (only the Schedule button is gated).
+- Quote/receipt numbering was consumed by rolled-back test blocks (first real quote is QT-000005, first receipt RCV-000002). Reset sequences before a clean demo if it matters.
+- Airtable-synced `inventory.subscriptions` / `tickets.tickets` untouched; `sub_contracts` is where subscriptions should migrate.
+- RLS still off everywhere (new tables included); auth is the next real step.
+
 ### What's Left
 
 - Reporting / dashboards
