@@ -7,6 +7,7 @@ import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
 import { Plus, X, Search } from 'lucide-react'
+import DateTimePicker from '../components/DateTimePicker'
 
 const JOB_TYPES: JobType[] = [
   'installation', 'delivery', 'collect', 'un_installation', 'rework',
@@ -328,11 +329,11 @@ export default function Jobs() {
                 <label className="block text-sm font-medium text-neutral-700 mb-1">
                   Scheduled Date <span className="text-neutral-400 font-normal">(optional — leave blank for tentative)</span>
                 </label>
-                <input
-                  type="datetime-local"
+                <DateTimePicker
                   value={formScheduledDate}
-                  onChange={e => setFormScheduledDate(e.target.value)}
-                  className="w-full h-10 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  onChange={setFormScheduledDate}
+                  allowFuture
+                  placeholder="Leave blank for tentative"
                 />
               </div>
 

@@ -8,6 +8,7 @@ import { JobStatusBadge, JobTypeBadge, DirectionBadge } from '../components/Stat
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
 import MovementDateInput from '../components/MovementDateInput'
+import DateTimePicker from '../components/DateTimePicker'
 import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Pencil, Check, Trash2 } from 'lucide-react'
 
 const REASON_OPTIONS = [
@@ -489,11 +490,13 @@ export default function JobDetail() {
           {job.status === 'tentative' && (
             scheduling ? (
               <>
-                <input
-                  type="datetime-local"
+                <DateTimePicker
                   value={scheduleDate}
-                  onChange={e => setScheduleDate(e.target.value)}
-                  className="h-9 px-3 rounded-lg border border-neutral-200 bg-neutral-0 text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  onChange={setScheduleDate}
+                  allowFuture
+                  size="sm"
+                  placeholder="Pick a date and time…"
+                  className="w-64"
                 />
                 <button onClick={handleSchedule} disabled={statusUpdating} className="h-9 px-3 rounded-lg bg-neutral-900 text-neutral-0 text-[13px] font-medium hover:bg-neutral-800 disabled:opacity-40">
                   Confirm
