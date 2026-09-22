@@ -13,6 +13,7 @@ import Jobs from './pages/Jobs'
 import JobDetail from './pages/JobDetail'
 import Quotes from './pages/Quotes'
 import QuoteDetail from './pages/QuoteDetail'
+import Greenlight from './pages/Greenlight'
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="/quotes/:id" element={<QuoteDetail />} />
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/jobs/:id" element={<JobDetail />} />
+            <Route path="/greenlight" element={<Greenlight />} />
             <Route path="/movements" element={<Movements />} />
             <Route path="*" element={<Navigate to="/products" replace />} />
           </Route>

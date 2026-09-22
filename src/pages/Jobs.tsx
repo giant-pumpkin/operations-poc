@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { Job, JobType, JobStatus, Company, Location } from '../lib/types'
+import type { Job, JobType, JobStatus, Company, Location, JobReadiness, Readiness } from '../lib/types'
 import { JobStatusBadge, JobTypeBadge } from '../components/StatusBadge'
+import { ReadinessBadge, blockingReasons, READINESS_LABEL } from '../components/Readiness'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
@@ -39,6 +40,8 @@ export default function Jobs() {
   const [locations, setLocations] = useState<Location[]>([])
   const [loading, setLoading] = useState(true)
 
+  const [readinessById, setReadinessById] = useState<Map<string, JobReadiness>>(new Map())
+  const [readinessFilter, setReadinessFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [clientFilter, setClientFilter] = useState('')
@@ -80,6 +83,9 @@ export default function Jobs() {
       .order('created_at', { ascending: false })
     if (data) setJobs(data as unknown as Job[])
 
+    const { data: readiness } = await supabase.from('job_readiness').select('*')
+    if (readiness) setReadinessById(new Map((readiness as JobReadiness[]).map(r => [r.job_id, r])))
+
     const { data: assignees } = await supabase.from('job_assignees').select('job_id')
     if (assignees) {
       const counts: Record<string, number> = {}
@@ -90,6 +96,7 @@ export default function Jobs() {
   }
 
   const filtered = jobs.filter(j => {
+    if (readinessFilter && readinessById.get(j.id)?.readiness !== readinessFilter) return false
     if (statusFilter && j.status !== statusFilter) return false
     if (typeFilter && j.job_type !== typeFilter) return false
     if (clientFilter && j.client_id !== clientFilter) return false
@@ -194,6 +201,13 @@ export default function Jobs() {
           className="w-44"
         />
         <SearchableSelect
+          options={(['blocked', 'ready', 'scheduled', 'in_progress', 'done'] as Readiness[]).map(r => ({ value: r, label: READINESS_LABEL[r] }))}
+          value={readinessFilter}
+          onChange={setReadinessFilter}
+          placeholder="Any readiness"
+          className="w-44"
+        />
+        <SearchableSelect
           options={JOB_TYPES.map(t => ({ value: t, label: formatLabel(t) }))}
           value={typeFilter}
           onChange={setTypeFilter}
@@ -225,6 +239,7 @@ export default function Jobs() {
               <th className="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Job Number</th>
               <th className="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Type</th>
               <th className="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Status</th>
+              <th className="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Readiness</th>
               <th className="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Client</th>
               <th className="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Location</th>
               <th className="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-500">Partner</th>
@@ -234,9 +249,9 @@ export default function Jobs() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-[13px] text-neutral-400">Loading…</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-[13px] text-neutral-400">Loading…</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-[13px] text-neutral-400">No jobs found</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-[13px] text-neutral-400">No jobs found</td></tr>
             ) : (
               filtered.map(job => (
                 <tr
@@ -247,6 +262,18 @@ export default function Jobs() {
                   <td className="px-4 py-2.5 text-[12px] font-mono text-neutral-800">{job.job_number}</td>
                   <td className="px-4 py-2.5"><JobTypeBadge type={job.job_type} /></td>
                   <td className="px-4 py-2.5"><JobStatusBadge status={job.status} /></td>
+                  <td className="px-4 py-2.5">
+                    {(() => {
+                      const r = readinessById.get(job.id)
+                      if (!r) return <span className="text-[12px] text-neutral-300">—</span>
+                      const reasons = blockingReasons(r)
+                      return (
+                        <span title={reasons.length ? reasons.join('\n') : undefined}>
+                          <ReadinessBadge readiness={r.readiness} />
+                        </span>
+                      )
+                    })()}
+                  </td>
                   <td className="px-4 py-2.5 text-[12px] text-neutral-700">{job.client?.name ?? '—'}</td>
                   <td className="px-4 py-2.5 text-[12px] text-neutral-700">{job.location?.name ?? '—'}</td>
                   <td className="px-4 py-2.5 text-[12px] text-neutral-700">{job.partner?.name ?? '—'}</td>

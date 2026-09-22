@@ -200,6 +200,29 @@ export interface SubContract {
   created_at: string
 }
 
+export interface JobReadiness {
+  job_id: string
+  job_number: string
+  job_type: JobType
+  status: JobStatus
+  client_id: string
+  location_id: string
+  partner_id: string | null
+  scheduled_date: string | null
+  partner_confirmed_at: string | null
+  quote_gate: 'ok' | 'missing' | 'unsigned'
+  quote_summary: string | null
+  deposit_gate: 'ok' | 'missing' | 'not_required' | 'unpaid'
+  unpaid_summary: string | null
+  stock_gate: 'ok' | 'on_order' | 'short'
+  stock_summary: string | null
+  partner_gate: 'ok' | 'pending'
+  schedule_gate: 'ok' | 'pending'
+  readiness: 'blocked' | 'ready' | 'scheduled' | 'in_progress' | 'done'
+}
+
+export type Readiness = JobReadiness['readiness']
+
 export type QuoteStatus = Quote['status']
 export type DepositStatus = Quote['deposit_status']
 export type QuoteLineType = QuoteLine['line_type']

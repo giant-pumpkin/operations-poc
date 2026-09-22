@@ -3,9 +3,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useProfile } from '../lib/profile'
 import type {
-  Job, JobItem, JobAssignee, InventoryItem, Product, Location, Profile, JobStatus, Quote, Company,
+  Job, JobItem, JobAssignee, InventoryItem, Product, Location, Profile, JobStatus, Quote, Company, JobReadiness,
 } from '../lib/types'
 import { JobStatusBadge, JobTypeBadge, DirectionBadge, QuoteStatusBadge, DepositBadge } from '../components/StatusBadge'
+import { ReadinessBadge, GateList, blockingReasons } from '../components/Readiness'
 import { formatMoney } from '../lib/format'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
@@ -135,6 +136,8 @@ export default function JobDetail() {
   const [linkQuoteId, setLinkQuoteId] = useState('')
   const [quoteBusy, setQuoteBusy] = useState(false)
 
+  const [readiness, setReadiness] = useState<JobReadiness | null>(null)
+
   // stock supply + orders
   const [supply, setSupply] = useState<SupplyRow[]>([])
   const [receipts, setReceipts] = useState<Receipt[]>([])
@@ -192,7 +195,7 @@ export default function JobDetail() {
       const linkedIds = new Set(linked.map(q => q.id))
       setLinkableQuotes(((allRes.data ?? []) as unknown as LinkedQuote[]).filter(q => !linkedIds.has(q.id)))
 
-      const [supplyRes, receiptsRes, suppliersRes] = await Promise.all([
+      const [supplyRes, receiptsRes, suppliersRes, readinessRes] = await Promise.all([
         supabase.from('job_item_supply').select('*').eq('job_id', id),
         supabase
           .from('inv_expected_receipts')
@@ -200,10 +203,12 @@ export default function JobDetail() {
           .eq('job_id', id)
           .order('created_at'),
         supabase.from('mock_cl_companies').select('*').eq('status', 'supplier').order('name'),
+        supabase.from('job_readiness').select('*').eq('job_id', id).maybeSingle(),
       ])
       setSupply((supplyRes.data as SupplyRow[]) ?? [])
       setReceipts((receiptsRes.data as unknown as Receipt[]) ?? [])
       setSuppliers((suppliersRes.data as Company[]) ?? [])
+      setReadiness((readinessRes.data as JobReadiness | null) ?? null)
     }
     if (itemsRes.data) setJobItems(itemsRes.data as unknown as JobItem[])
     if (assigneesRes.data) setAssignees(assigneesRes.data as unknown as JobAssignee[])
@@ -701,9 +706,21 @@ export default function JobDetail() {
                 </button>
               </>
             ) : (
-              <button onClick={() => setScheduling(true)} className="h-9 px-3 rounded-lg bg-neutral-900 text-neutral-0 text-[13px] font-medium hover:bg-neutral-800">
-                Schedule
-              </button>
+              <div className="relative group">
+                <button
+                  onClick={() => setScheduling(true)}
+                  disabled={readiness?.readiness === 'blocked'}
+                  className="h-9 px-3 rounded-lg bg-neutral-900 text-neutral-0 text-[13px] font-medium hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Schedule
+                </button>
+                {readiness?.readiness === 'blocked' && (
+                  <div className={tooltipClass}>
+                    {blockingReasons(readiness).map((r, i) => <div key={i}>{r}</div>)}
+                    <div className={tooltipArrowClass} />
+                  </div>
+                )}
+              </div>
             )
           )}
           {job.status === 'scheduled' && (
@@ -764,6 +781,21 @@ export default function JobDetail() {
           )}
         </div>
       </div>
+
+      {/* Readiness */}
+      {readiness && readiness.readiness !== 'done' && (
+        <div className={`border rounded-xl p-5 mb-5 animate-rise ${
+          readiness.readiness === 'blocked' ? 'bg-danger-50/40 border-danger-500/30'
+            : readiness.readiness === 'ready' ? 'bg-success-50/40 border-success-500/30'
+            : 'bg-neutral-0 border-neutral-200'
+        }`}>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[14px] font-semibold text-neutral-800">Readiness</h2>
+            <ReadinessBadge readiness={readiness.readiness} />
+          </div>
+          <GateList readiness={readiness} />
+        </div>
+      )}
 
       {/* Quotes */}
       <div className="bg-neutral-0 border border-neutral-200 rounded-xl p-5 mb-5">

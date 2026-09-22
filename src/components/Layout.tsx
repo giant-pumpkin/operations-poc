@@ -9,6 +9,7 @@ import {
   ArrowLeftRight,
   Briefcase,
   FileText,
+  Gauge,
   UserRound,
   ChevronDown,
 } from 'lucide-react'
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { to: '/adjustment', label: 'Adjustment', icon: ClipboardMinus },
   { to: '/quotes', label: 'Quotes', icon: FileText },
   { to: '/jobs', label: 'Jobs', icon: Briefcase },
+  { to: '/greenlight', label: 'Greenlight', icon: Gauge },
   { to: '/movements', label: 'Movements', icon: ArrowLeftRight },
 ]
 
