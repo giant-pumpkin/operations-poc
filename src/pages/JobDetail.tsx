@@ -3,14 +3,22 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useProfile } from '../lib/profile'
 import type {
-  Job, JobItem, JobAssignee, InventoryItem, Product, Location, Profile, JobStatus,
+  Job, JobItem, JobAssignee, InventoryItem, Product, Location, Profile, JobStatus, Quote,
 } from '../lib/types'
-import { JobStatusBadge, JobTypeBadge, DirectionBadge } from '../components/StatusBadge'
+import { JobStatusBadge, JobTypeBadge, DirectionBadge, QuoteStatusBadge, DepositBadge } from '../components/StatusBadge'
+import { formatMoney } from '../lib/format'
 import { useToast } from '../components/Toast'
 import SearchableSelect from '../components/SearchableSelect'
 import MovementDateInput from '../components/MovementDateInput'
 import DateTimePicker from '../components/DateTimePicker'
-import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Pencil, Check, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Pencil, Check, Trash2, Link2, Unlink, Handshake } from 'lucide-react'
+
+type LinkedQuote = Quote & { lines: { id: string; quantity: number; unit_price: number; line_type: string }[]; linked_at: string }
+
+function quoteTotal(q: { lines: { quantity: number; unit_price: number }[]; tax_rate: number }): number {
+  const subtotal = q.lines.reduce((s, l) => s + l.quantity * Number(l.unit_price), 0)
+  return subtotal * (1 + Number(q.tax_rate) / 100)
+}
 
 const REASON_OPTIONS = [
   { value: 'defect', label: 'Defect — needs repair' },
@@ -91,6 +99,12 @@ export default function JobDetail() {
   const [notesValue, setNotesValue] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
 
+  // quotes
+  const [linkedQuotes, setLinkedQuotes] = useState<LinkedQuote[]>([])
+  const [linkableQuotes, setLinkableQuotes] = useState<LinkedQuote[]>([])
+  const [linkQuoteId, setLinkQuoteId] = useState('')
+  const [quoteBusy, setQuoteBusy] = useState(false)
+
   useEffect(() => {
     fetchJob()
   }, [id])
@@ -116,6 +130,25 @@ export default function JobDetail() {
     if (jobRes.data) {
       setJob(jobRes.data as unknown as Job)
       setNotesValue((jobRes.data as any).notes ?? '')
+      const clientId = (jobRes.data as any).client_id as string
+      const [linkedRes, allRes] = await Promise.all([
+        supabase
+          .from('job_quotes')
+          .select('linked_at, quote:crm_quotes(*, lines:crm_quote_lines(id,quantity,unit_price,line_type))')
+          .eq('job_id', id),
+        supabase
+          .from('crm_quotes')
+          .select('*, lines:crm_quote_lines(id,quantity,unit_price,line_type)')
+          .eq('client_id', clientId)
+          .in('status', ['sent', 'signed'])
+          .order('quote_number'),
+      ])
+      const linked = ((linkedRes.data ?? []) as any[])
+        .filter(r => r.quote)
+        .map(r => ({ ...r.quote, linked_at: r.linked_at })) as LinkedQuote[]
+      setLinkedQuotes(linked)
+      const linkedIds = new Set(linked.map(q => q.id))
+      setLinkableQuotes(((allRes.data ?? []) as unknown as LinkedQuote[]).filter(q => !linkedIds.has(q.id)))
     }
     if (itemsRes.data) setJobItems(itemsRes.data as unknown as JobItem[])
     if (assigneesRes.data) setAssignees(assigneesRes.data as unknown as JobAssignee[])
@@ -416,6 +449,52 @@ export default function JobDetail() {
     fetchJob()
   }
 
+  async function handleLinkQuote() {
+    if (!job || !linkQuoteId) return
+    setQuoteBusy(true)
+    try {
+      const { error } = await supabase.rpc('link_quote_to_job', { p_job_id: job.id, p_quote_id: linkQuoteId, p_profile: activeProfileId })
+      if (error) throw error
+      toast('success', 'Quote linked')
+      setLinkQuoteId('')
+      fetchJob()
+    } catch (err: any) {
+      toast('error', err.message || 'Failed to link quote')
+    } finally {
+      setQuoteBusy(false)
+    }
+  }
+
+  async function handleUnlinkQuote(quoteId: string) {
+    if (!job) return
+    setQuoteBusy(true)
+    try {
+      const { error } = await supabase.rpc('unlink_quote_from_job', { p_job_id: job.id, p_quote_id: quoteId })
+      if (error) throw error
+      toast('success', 'Quote unlinked')
+      fetchJob()
+    } catch (err: any) {
+      toast('error', err.message || 'Failed to unlink quote')
+    } finally {
+      setQuoteBusy(false)
+    }
+  }
+
+  async function handleConfirmPartner(confirmed: boolean) {
+    if (!job) return
+    setStatusUpdating(true)
+    try {
+      const { error } = await supabase.rpc('confirm_job_partner', { p_job_id: job.id, p_profile: activeProfileId, p_confirmed: confirmed })
+      if (error) throw error
+      toast('success', confirmed ? 'Partner confirmed' : 'Partner confirmation cleared')
+      fetchJob()
+    } catch (err: any) {
+      toast('error', err.message || 'Failed to update partner confirmation')
+    } finally {
+      setStatusUpdating(false)
+    }
+  }
+
   async function saveNotes() {
     if (!job) return
     setSavingNotes(true)
@@ -549,6 +628,17 @@ export default function JobDetail() {
             </>
           )}
           {!['completed', 'closed', 'cancelled'].includes(job.status) && (
+            job.partner_confirmed_at ? (
+              <button onClick={() => handleConfirmPartner(false)} disabled={statusUpdating} className="h-9 px-3 rounded-lg border border-success-500/40 bg-success-50 text-[13px] font-medium text-success-700 hover:bg-success-50/70 disabled:opacity-40 inline-flex items-center gap-1.5" title="Click to clear">
+                <Handshake size={14} /> Partner confirmed · {formatDate(job.partner_confirmed_at)}
+              </button>
+            ) : (
+              <button onClick={() => handleConfirmPartner(true)} disabled={statusUpdating} className="h-9 px-3 rounded-lg border border-neutral-200 text-[13px] font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 inline-flex items-center gap-1.5">
+                <Handshake size={14} /> Confirm partner
+              </button>
+            )
+          )}
+          {!['completed', 'closed', 'cancelled'].includes(job.status) && (
             <div className="relative group ml-auto">
               <button onClick={() => updateJobStatus('cancelled')} disabled={statusUpdating || cancelBlocker !== null} className="h-9 px-3 rounded-lg border border-danger-200 text-[13px] font-medium text-danger-600 hover:bg-danger-50 disabled:opacity-40 disabled:cursor-not-allowed">
                 Cancel Job
@@ -559,6 +649,72 @@ export default function JobDetail() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Quotes */}
+      <div className="bg-neutral-0 border border-neutral-200 rounded-xl p-5 mb-5">
+        <h2 className="text-[14px] font-semibold text-neutral-800 mb-3">Quotes</h2>
+        {linkedQuotes.length === 0 ? (
+          <p className="text-[12px] text-neutral-400 mb-3">No quotes linked — a job usually has at least one signed quote behind it.</p>
+        ) : (
+          <div className="space-y-1.5 mb-3">
+            {linkedQuotes.map(q => {
+              const lineIds = new Set(q.lines.map(l => l.id))
+              const derived = jobItems.some(i => i.quote_line_id && lineIds.has(i.quote_line_id))
+              return (
+                <div key={q.id} className="flex items-center justify-between p-2.5 rounded-lg bg-neutral-50">
+                  <Link to={`/quotes/${q.id}`} className="flex items-center gap-2 text-[13px] min-w-0">
+                    <span className="font-mono text-neutral-800">{q.quote_number} <span className="text-neutral-400">v{q.version}</span></span>
+                    <QuoteStatusBadge status={q.status} />
+                    <DepositBadge status={q.deposit_status} />
+                    <span className="text-neutral-500 truncate">{q.title}</span>
+                  </Link>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="font-mono text-[12px] text-neutral-700">{formatMoney(quoteTotal(q), q.currency)}</span>
+                    {!itemsLocked && (
+                      <div className="relative group">
+                        <button
+                          onClick={() => handleUnlinkQuote(q.id)}
+                          disabled={quoteBusy || derived}
+                          className="p-1.5 rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                          aria-label="Unlink quote"
+                        >
+                          <Unlink size={13} />
+                        </button>
+                        {derived && (
+                          <div className={`${tooltipClass} left-auto right-0`}>Job items were created from this quote<div className={`${tooltipArrowClass} left-auto right-4`} /></div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {!itemsLocked && (
+          <div className="flex items-center gap-2">
+            <SearchableSelect
+              options={linkableQuotes.map(q => ({
+                value: q.id,
+                label: `${q.quote_number} v${q.version}${q.title ? ` · ${q.title}` : ''}`,
+                sublabel: `${q.status} · ${formatMoney(quoteTotal(q), q.currency)}`,
+              }))}
+              value={linkQuoteId}
+              onChange={setLinkQuoteId}
+              placeholder={linkableQuotes.length ? 'Link an existing quote for this client…' : 'No other sent/signed quotes for this client'}
+              disabled={linkableQuotes.length === 0}
+              className="flex-1"
+            />
+            <button
+              onClick={handleLinkQuote}
+              disabled={quoteBusy || !linkQuoteId}
+              className="h-10 px-4 rounded-lg bg-neutral-900 text-neutral-0 text-[13px] font-medium hover:bg-neutral-800 disabled:opacity-40 inline-flex items-center gap-1.5"
+            >
+              <Link2 size={14} /> Link
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Job Items */}
